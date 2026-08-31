@@ -94,6 +94,13 @@
   .field .row{ display:flex; align-items:center; gap:8px; }
   .field input[type=range]{ width:100%; accent-color:var(--accent); height:34px; }
   .field .val{ font-size:12px; color:var(--text); min-width:44px; text-align:center; font-variant-numeric:tabular-nums; }
+  .stepbtn{
+    appearance:none; border:1px solid var(--border); background:var(--bg);
+    color:var(--text); border-radius:9px; font-size:19px; font-weight:700; line-height:1;
+    width:38px; height:38px; flex:0 0 auto; cursor:pointer; touch-action:manipulation;
+    display:inline-flex; align-items:center; justify-content:center; user-select:none;
+  }
+  .stepbtn:active{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
   .field input[type=number]{
     width:100%; padding:9px 8px; border:1px solid var(--border); border-radius:8px;
     font-size:14px; background:var(--bg); color:var(--text);
@@ -141,15 +148,15 @@
 
   /* ---------- Viewer ---------- */
   #viewer{
-    flex:1 1 auto; overflow-y:auto; overflow-x:auto;
+    flex:1 1 auto; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
     background:var(--bg);
-    padding:16px 0 calc(24px + var(--safe-b));
+    padding:10px 0 calc(18px + var(--safe-b));
     display:none;
   }
   #viewer.show{ display:block; }
   #viewer.night{ background:#101010; }
-  #pages{ display:flex; flex-direction:column; align-items:center; gap:14px; }
+  #pages{ display:flex; flex-direction:column; align-items:center; gap:8px; }
   .pwrap{
     position:relative; background:#fff; box-shadow:0 1px 8px rgba(0,0,0,.15);
     flex:0 0 auto;
@@ -194,18 +201,21 @@
       <div class="field">
         <label>حجم الصفحة</label>
         <div class="row">
-          <input type="range" id="zoomRange" min="1" max="400" step="1" value="100">
-          <span class="val" id="zoomVal">100%</span>
+          <button class="stepbtn" id="zoomMinus" type="button" title="تصغير">−</button>
+          <input type="range" id="zoomRange" min="1" max="100" step="1" value="100">
+          <button class="stepbtn" id="zoomPlus" type="button" title="تكبير">＋</button>
         </div>
-        <div class="hint">من 1% تقريبًا (أصغر ما يمكن) إلى 400%</div>
+        <div class="hint" id="zoomHint">100% — الصفحة بعرض الشاشة كاملًا</div>
       </div>
 
       <div class="field">
         <label>سرعة التمرير التلقائي</label>
         <div class="row">
+          <button class="stepbtn" id="speedMinus" type="button" title="أبطأ">−</button>
           <input type="range" id="speedRange" min="1" max="100" step="1" value="25">
-          <span class="val" id="speedVal">25</span>
+          <button class="stepbtn" id="speedPlus" type="button" title="أسرع">＋</button>
         </div>
+        <div class="hint" id="speedHint">السرعة: 25</div>
       </div>
 
       <hr class="sep">
@@ -286,9 +296,13 @@
   const playBtn = $("playBtn");
   const fsBtn = $("fsBtn");
   const zoomRange = $("zoomRange");
-  const zoomVal = $("zoomVal");
+  const zoomHint = $("zoomHint");
+  const zoomMinus = $("zoomMinus");
+  const zoomPlus = $("zoomPlus");
   const speedRange = $("speedRange");
-  const speedVal = $("speedVal");
+  const speedHint = $("speedHint");
+  const speedMinus = $("speedMinus");
+  const speedPlus = $("speedPlus");
   const rangeFrom = $("rangeFrom");
   const rangeTo = $("rangeTo");
   const applyRangeBtn = $("applyRangeBtn");
@@ -341,8 +355,12 @@
   }
 
   // ---------- Init UI from settings ----------
-  zoomRange.value = zoomPercent; zoomVal.textContent = zoomPercent+"%";
-  speedRange.value = speedValue; speedVal.textContent = speedValue;
+  const ZOOM_MIN = 1, ZOOM_MAX = 100, ZOOM_STEP = 5;
+  const SPEED_MIN = 1, SPEED_MAX = 100, SPEED_STEP = 5;
+  zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPercent));
+  speedValue = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speedValue));
+  zoomRange.value = zoomPercent; updateZoomHint();
+  speedRange.value = speedValue; updateSpeedHint();
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
 
@@ -584,13 +602,22 @@
 
   // ---------- Zoom ----------
   let zoomDebounce = null;
-  zoomRange.addEventListener("input", ()=>{
-    zoomPercent = parseInt(zoomRange.value, 10);
-    zoomVal.textContent = zoomPercent + "%";
+  function updateZoomHint(){
+    zoomHint.textContent = zoomPercent === 100
+      ? "100% — الصفحة بعرض الشاشة كاملًا"
+      : zoomPercent + "%";
+  }
+  function setZoom(val){
+    zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(val)));
+    zoomRange.value = zoomPercent;
+    updateZoomHint();
     saveSetting("zoom", zoomPercent);
     clearTimeout(zoomDebounce);
     zoomDebounce = setTimeout(relayoutAll, 120);
-  });
+  }
+  zoomRange.addEventListener("input", ()=> setZoom(parseInt(zoomRange.value, 10)));
+  zoomMinus.addEventListener("click", ()=> setZoom(zoomPercent - ZOOM_STEP));
+  zoomPlus.addEventListener("click", ()=> setZoom(zoomPercent + ZOOM_STEP));
 
   // ---------- Page range ----------
   applyRangeBtn.addEventListener("click", ()=>{
@@ -639,11 +666,18 @@
   });
 
   // ---------- Auto-scroll (speed) ----------
-  speedRange.addEventListener("input", ()=>{
-    speedValue = parseInt(speedRange.value, 10);
-    speedVal.textContent = speedValue;
+  function updateSpeedHint(){
+    speedHint.textContent = "السرعة: " + speedValue;
+  }
+  function setSpeed(val){
+    speedValue = Math.max(SPEED_MIN, Math.min(SPEED_MAX, Math.round(val)));
+    speedRange.value = speedValue;
+    updateSpeedHint();
     saveSetting("speed", speedValue);
-  });
+  }
+  speedRange.addEventListener("input", ()=> setSpeed(parseInt(speedRange.value, 10)));
+  speedMinus.addEventListener("click", ()=> setSpeed(speedValue - SPEED_STEP));
+  speedPlus.addEventListener("click", ()=> setSpeed(speedValue + SPEED_STEP));
 
   function speedPxPerSec(){
     // wide, fine-grained range: ~8px/s up to ~900px/s
