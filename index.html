@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>ScrollablePDF — قارئ كتب PDF</title>
+<meta name="description" content="قارئ PDF عمودي خفيف، يعرض الصفحات عند الحاجة فقط، مع تمرير تلقائي وملء الشاشة ومؤقت نوم.">
+<style>
+  :root{
+    --bg:#f2f1ec;
+    --panel:#ffffff;
+    --toolbar:#ffffff;
+    --border:#e2ddd0;
+    --text:#26241f;
+    --muted:#8a8577;
+    --accent:#a9673f;
+    --accent-contrast:#ffffff;
+    --shadow: 0 2px 14px rgba(30,25,15,.08);
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--bg); color:var(--text);
+    font-family:"Segoe UI","Tahoma","Geeza Pro",system-ui,-apple-system,sans-serif;
+    -webkit-text-size-adjust:100%;
+    overscroll-behavior:none;
+  }
+  #app{
+    height:100vh; height:100dvh;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---------- Toolbar ---------- */
+  #toolbar{
+    flex:0 0 auto;
+    display:flex; align-items:center; gap:8px;
+    padding:10px 12px;
+    padding-top:calc(10px + var(--safe-t));
+    padding-inline-start:calc(12px + var(--safe-l));
+    padding-inline-end:calc(12px + var(--safe-r));
+    background:var(--toolbar);
+    border-bottom:1px solid var(--border);
+    box-shadow:var(--shadow);
+    position:relative; z-index:20;
+    transition: transform .28s ease, opacity .28s ease;
+  }
+  body.fullscreen-mode #toolbar.hidden{
+    transform: translateY(-115%);
+    opacity:0;
+    pointer-events:none;
+  }
+  .brand{
+    font-weight:700; font-size:15px; color:var(--accent);
+    white-space:nowrap; display:none;
+  }
+  @media(min-width:560px){ .brand{ display:inline-block; } }
+
+  .tbtn{
+    appearance:none; border:1px solid var(--border); background:var(--panel);
+    color:var(--text); border-radius:10px; padding:9px 10px;
+    font-size:16px; line-height:1; cursor:pointer;
+    display:inline-flex; align-items:center; justify-content:center;
+    gap:6px; min-width:40px; min-height:40px;
+    touch-action:manipulation; user-select:none;
+  }
+  .tbtn:active{ background:var(--border); }
+  .tbtn.active{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
+  .tbtn.small{ font-size:13px; padding:8px; min-width:36px; min-height:36px; }
+
+  #pageIndicator{
+    font-size:13px; color:var(--muted); white-space:nowrap; min-width:66px; text-align:center;
+    font-variant-numeric: tabular-nums;
+  }
+  .spacer{ flex:1 1 auto; }
+
+  /* ---------- Settings panel ---------- */
+  #settingsPanel{
+    position:absolute; top:100%; inset-inline-end:8px;
+    width:min(340px, calc(100vw - 16px));
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    box-shadow:var(--shadow); padding:14px; margin-top:8px;
+    display:none; max-height:calc(100dvh - 90px); overflow-y:auto;
+    z-index:30;
+  }
+  #settingsPanel.open{ display:block; }
+  .field{ margin-bottom:16px; }
+  .field:last-child{ margin-bottom:0; }
+  .field label{ display:block; font-size:12.5px; color:var(--muted); margin-bottom:6px; font-weight:600; }
+  .field .row{ display:flex; align-items:center; gap:8px; }
+  .field input[type=range]{ width:100%; accent-color:var(--accent); height:34px; }
+  .field .val{ font-size:12px; color:var(--text); min-width:44px; text-align:center; font-variant-numeric:tabular-nums; }
+  .field input[type=number]{
+    width:100%; padding:9px 8px; border:1px solid var(--border); border-radius:8px;
+    font-size:14px; background:var(--bg); color:var(--text);
+  }
+  .field .hint{ font-size:11px; color:var(--muted); margin-top:4px; }
+  .range-inputs{ display:flex; align-items:center; gap:8px; }
+  .range-inputs > div{ flex:1; }
+  .range-inputs span{ color:var(--muted); font-size:12px; }
+  .btnrow{ display:flex; gap:8px; margin-top:8px; }
+  .btnrow .tbtn{ flex:1; font-size:13px; }
+  hr.sep{ border:none; border-top:1px solid var(--border); margin:14px 0; }
+  .switch-row{ display:flex; align-items:center; justify-content:space-between; }
+  .switch{
+    position:relative; width:44px; height:26px; border-radius:20px; background:var(--border);
+    cursor:pointer; flex:0 0 auto; transition:background .2s;
+  }
+  .switch.on{ background:var(--accent); }
+  .switch::after{
+    content:""; position:absolute; top:3px; inset-inline-start:3px; width:20px; height:20px;
+    background:#fff; border-radius:50%; transition:inset-inline-start .2s; box-shadow:0 1px 3px rgba(0,0,0,.3);
+  }
+  .switch.on::after{ inset-inline-start:21px; }
+  #countdownBadge{
+    font-size:12px; color:var(--accent); margin-top:6px; font-variant-numeric:tabular-nums; display:none;
+  }
+  #countdownBadge.show{ display:block; }
+
+  /* ---------- Drop zone ---------- */
+  #dropzone{
+    flex:1 1 auto; display:flex; align-items:center; justify-content:center;
+    padding:24px; text-align:center;
+  }
+  #dropzone.hide{ display:none; }
+  .dz-box{
+    border:2px dashed var(--border); border-radius:18px; padding:40px 24px; max-width:420px; width:100%;
+    background:var(--panel); box-shadow:var(--shadow);
+  }
+  .dz-box h2{ margin:0 0 8px; font-size:18px; }
+  .dz-box p{ margin:0 0 18px; color:var(--muted); font-size:13.5px; line-height:1.6; }
+  .dz-box.dragover{ border-color:var(--accent); background:#fbf3ec; }
+  #openBtnBig{
+    background:var(--accent); color:#fff; border:none; border-radius:12px; padding:13px 22px;
+    font-size:15px; cursor:pointer; touch-action:manipulation;
+  }
+
+  /* ---------- Viewer ---------- */
+  #viewer{
+    flex:1 1 auto; overflow-y:auto; overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+    background:var(--bg);
+    padding:16px 0 calc(24px + var(--safe-b));
+    display:none;
+  }
+  #viewer.show{ display:block; }
+  #viewer.night{ background:#101010; }
+  #pages{ display:flex; flex-direction:column; align-items:center; gap:14px; }
+  .pwrap{
+    position:relative; background:#fff; box-shadow:0 1px 8px rgba(0,0,0,.15);
+    flex:0 0 auto;
+  }
+  #viewer.night .pwrap{ background:#161616; box-shadow:0 1px 8px rgba(0,0,0,.5); }
+  .pwrap canvas{ display:block; width:100%; height:100%; }
+  #viewer.night .pwrap canvas{ filter:invert(1) hue-rotate(180deg) brightness(.92); }
+  .pnum{
+    position:absolute; bottom:6px; inset-inline-end:8px; font-size:10px; color:#fff;
+    background:rgba(0,0,0,.45); padding:2px 6px; border-radius:6px; pointer-events:none;
+  }
+  .pwrap.loading::before{
+    content:""; position:absolute; inset:0; background:
+      repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 10px, rgba(0,0,0,.06) 10px 20px);
+  }
+
+  /* ---------- Toast ---------- */
+  #toast{
+    position:fixed; bottom:calc(20px + var(--safe-b)); left:50%; transform:translateX(-50%) translateY(20px);
+    background:#242119; color:#fff; padding:10px 18px; border-radius:10px; font-size:13px;
+    opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:50; max-width:88vw; text-align:center;
+  }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  input[type=file]{ display:none; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="toolbar">
+    <button class="tbtn" id="openBtn" title="فتح ملف PDF">📂</button>
+    <span id="pageIndicator">—</span>
+    <div class="spacer"></div>
+    <span class="brand">ScrollablePDF</span>
+    <div class="spacer"></div>
+    <button class="tbtn" id="playBtn" title="تمرير تلقائي">▶️</button>
+    <button class="tbtn" id="fsBtn" title="ملء الشاشة">⛶</button>
+    <button class="tbtn" id="settingsBtn" title="الإعدادات">⚙️</button>
+
+    <div id="settingsPanel">
+      <div class="field">
+        <label>حجم الصفحة</label>
+        <div class="row">
+          <input type="range" id="zoomRange" min="1" max="400" step="1" value="100">
+          <span class="val" id="zoomVal">100%</span>
+        </div>
+        <div class="hint">من 1% تقريبًا (أصغر ما يمكن) إلى 400%</div>
+      </div>
+
+      <div class="field">
+        <label>سرعة التمرير التلقائي</label>
+        <div class="row">
+          <input type="range" id="speedRange" min="1" max="100" step="1" value="25">
+          <span class="val" id="speedVal">25</span>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <label>نطاق الصفحات المعروضة (الافتراضي: الكتاب كاملًا)</label>
+        <div class="range-inputs">
+          <div><input type="number" id="rangeFrom" min="1" value="1"></div>
+          <span>إلى</span>
+          <div><input type="number" id="rangeTo" min="1" value="1"></div>
+        </div>
+        <div class="btnrow">
+          <button class="tbtn small" id="applyRangeBtn">تطبيق</button>
+          <button class="tbtn small" id="resetRangeBtn">الكل</button>
+        </div>
+        <div class="hint" id="totalPagesHint"></div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <div class="switch-row">
+          <label style="margin:0;">الوضع الليلي</label>
+          <div class="switch" id="nightSwitch"></div>
+        </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <label>مؤقت النوم (توقف تلقائي بعد X دقيقة)</label>
+        <div class="row">
+          <input type="number" id="sleepMinutes" min="1" max="240" value="20">
+          <button class="tbtn small" id="sleepStartBtn">ابدأ</button>
+          <button class="tbtn small" id="sleepCancelBtn">إلغاء</button>
+        </div>
+        <div id="countdownBadge">متبقٍ: <span id="countdownText">00:00</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="dropzone">
+    <div class="dz-box" id="dzBox">
+      <h2>📖 ScrollablePDF</h2>
+      <p>اختر كتاب PDF لبدء القراءة بتمرير عمودي فقط. الصفحات تُحمَّل عند الحاجة فقط أثناء التمرير، وليس دفعة واحدة.</p>
+      <button id="openBtnBig">اختر ملف PDF</button>
+    </div>
+  </div>
+
+  <div id="viewer">
+    <div id="pages"></div>
+  </div>
+
+  <input type="file" id="fileInput" accept="application/pdf,.pdf">
+  <div id="toast"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  // ---------- Elements ----------
+  const $ = (id)=>document.getElementById(id);
+  const toolbar = $("toolbar");
+  const settingsBtn = $("settingsBtn");
+  const settingsPanel = $("settingsPanel");
+  const openBtn = $("openBtn");
+  const openBtnBig = $("openBtnBig");
+  const fileInput = $("fileInput");
+  const dropzone = $("dropzone");
+  const dzBox = $("dzBox");
+  const viewer = $("viewer");
+  const pagesEl = $("pages");
+  const pageIndicator = $("pageIndicator");
+  const playBtn = $("playBtn");
+  const fsBtn = $("fsBtn");
+  const zoomRange = $("zoomRange");
+  const zoomVal = $("zoomVal");
+  const speedRange = $("speedRange");
+  const speedVal = $("speedVal");
+  const rangeFrom = $("rangeFrom");
+  const rangeTo = $("rangeTo");
+  const applyRangeBtn = $("applyRangeBtn");
+  const resetRangeBtn = $("resetRangeBtn");
+  const totalPagesHint = $("totalPagesHint");
+  const nightSwitch = $("nightSwitch");
+  const sleepMinutesInput = $("sleepMinutes");
+  const sleepStartBtn = $("sleepStartBtn");
+  const sleepCancelBtn = $("sleepCancelBtn");
+  const countdownBadge = $("countdownBadge");
+  const countdownText = $("countdownText");
+  const toastEl = $("toast");
+
+  // ---------- State ----------
+  let pdfDoc = null;
+  let numPages = 0;
+  let rangeStart = 1, rangeEnd = 1;
+  let zoomPercent = loadSetting("zoom", 100);
+  let speedValue = loadSetting("speed", 25);
+  let nightMode = loadSetting("night", false);
+  let sleepDefaultMinutes = loadSetting("sleepMinutes", 20);
+  const pageCache = new Map();      // pageNum -> pdf.js page proxy
+  const wrapperOf = new Map();      // pageNum -> wrapper element
+  let baseAspect = null;            // height/width ratio of page 1, used for placeholder sizing
+  let io = null;                    // IntersectionObserver for lazy render
+  let ioCurrent = null;             // IntersectionObserver for current-page tracking
+
+  let autoplay = false, lastTs = null, rafId = null;
+  let sleepTimeoutId = null, sleepEndTime = null, sleepIntervalId = null;
+
+  // ---------- Settings persistence ----------
+  function loadSetting(key, fallback){
+    try{
+      const v = localStorage.getItem("spdf_"+key);
+      if(v===null) return fallback;
+      return JSON.parse(v);
+    }catch(e){ return fallback; }
+  }
+  function saveSetting(key, value){
+    try{ localStorage.setItem("spdf_"+key, JSON.stringify(value)); }catch(e){}
+  }
+
+  // ---------- Toast ----------
+  let toastTimer = null;
+  function showToast(msg, ms){
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> toastEl.classList.remove("show"), ms||2600);
+  }
+
+  // ---------- Init UI from settings ----------
+  zoomRange.value = zoomPercent; zoomVal.textContent = zoomPercent+"%";
+  speedRange.value = speedValue; speedVal.textContent = speedValue;
+  sleepMinutesInput.value = sleepDefaultMinutes;
+  if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
+
+  // ---------- File opening ----------
+  openBtn.addEventListener("click", ()=> fileInput.click());
+  openBtnBig.addEventListener("click", ()=> fileInput.click());
+  fileInput.addEventListener("change", (e)=>{
+    const f = e.target.files && e.target.files[0];
+    if(f) openFile(f);
+    fileInput.value = "";
+  });
+
+  ["dragenter","dragover"].forEach(evt=>{
+    dzBox.addEventListener(evt, (e)=>{ e.preventDefault(); dzBox.classList.add("dragover"); });
+  });
+  ["dragleave","drop"].forEach(evt=>{
+    dzBox.addEventListener(evt, (e)=>{ e.preventDefault(); dzBox.classList.remove("dragover"); });
+  });
+  dzBox.addEventListener("drop", (e)=>{
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if(f) openFile(f);
+  });
+
+  async function openFile(file){
+    if(file.type && file.type!=="application/pdf" && !file.name.toLowerCase().endsWith(".pdf")){
+      showToast("الرجاء اختيار ملف PDF صالح");
+      return;
+    }
+    try{
+      resetAll();
+      showToast("جارٍ فتح الملف…", 1500);
+      const buf = await file.arrayBuffer();
+      const loadingTask = pdfjsLib.getDocument({ data: buf });
+      pdfDoc = await loadingTask.promise;
+      numPages = pdfDoc.numPages;
+
+      const page1 = await getPageCached(1);
+      const vp1 = page1.getViewport({ scale: 1 });
+      baseAspect = vp1.height / vp1.width;
+
+      rangeStart = 1; rangeEnd = numPages;
+      rangeFrom.min = 1; rangeFrom.max = numPages; rangeFrom.value = 1;
+      rangeTo.min = 1; rangeTo.max = numPages; rangeTo.value = numPages;
+      totalPagesHint.textContent = "عدد صفحات الكتاب: " + numPages;
+
+      dropzone.classList.add("hide");
+      viewer.classList.add("show");
+
+      buildPages(rangeStart, rangeEnd);
+      viewer.scrollTop = 0;
+      updatePageIndicator(rangeStart);
+    }catch(err){
+      console.error(err);
+      showToast("تعذر فتح الملف، تأكد أنه ملف PDF صالح");
+      dropzone.classList.remove("hide");
+      viewer.classList.remove("show");
+    }
+  }
+
+  function resetAll(){
+    stopAutoplay();
+    if(io) io.disconnect();
+    if(ioCurrent) ioCurrent.disconnect();
+    pagesEl.innerHTML = "";
+    pageCache.clear();
+    wrapperOf.clear();
+    pdfDoc = null; numPages = 0; baseAspect = null;
+  }
+
+  async function getPageCached(n){
+    if(pageCache.has(n)) return pageCache.get(n);
+    const p = await pdfDoc.getPage(n);
+    pageCache.set(n, p);
+    return p;
+  }
+
+  // ---------- Layout / virtualization ----------
+  function viewerContentWidth(){
+    const w = viewer.clientWidth - 4;
+    return Math.max(60, w);
+  }
+
+  function placeholderSize(){
+    const w = viewerContentWidth() * (zoomPercent/100);
+    const h = w * (baseAspect || 1.4142);
+    return { w, h };
+  }
+
+  function buildPages(start, end){
+    pagesEl.innerHTML = "";
+    wrapperOf.clear();
+    const { w, h } = placeholderSize();
+
+    const frag = document.createDocumentFragment();
+    for(let n = start; n <= end; n++){
+      const wrap = document.createElement("div");
+      wrap.className = "pwrap loading";
+      wrap.style.width = w + "px";
+      wrap.style.height = h + "px";
+      wrap.dataset.page = n;
+      wrap.dataset.rendered = "0";
+      wrap.dataset.rendering = "0";
+
+      const label = document.createElement("span");
+      label.className = "pnum";
+      label.textContent = n;
+      wrap.appendChild(label);
+
+      wrapperOf.set(n, wrap);
+      frag.appendChild(wrap);
+    }
+    pagesEl.appendChild(frag);
+
+    if(io) io.disconnect();
+    io = new IntersectionObserver(onLazyIntersect, {
+      root: viewer, rootMargin: "180% 0px 180% 0px", threshold: 0
+    });
+    wrapperOf.forEach(w => io.observe(w));
+
+    if(ioCurrent) ioCurrent.disconnect();
+    ioCurrent = new IntersectionObserver(onCurrentIntersect, {
+      root: viewer, threshold: [0, 0.25, 0.5, 0.75, 1]
+    });
+    wrapperOf.forEach(w => ioCurrent.observe(w));
+  }
+
+  function onLazyIntersect(entries){
+    for(const entry of entries){
+      const wrap = entry.target;
+      const n = parseInt(wrap.dataset.page, 10);
+      if(entry.isIntersecting){
+        renderPage(n, wrap);
+      } else {
+        unrenderPage(wrap);
+      }
+    }
+  }
+
+  let currentEntries = new Map();
+  function onCurrentIntersect(entries){
+    for(const e of entries){
+      const n = parseInt(e.target.dataset.page, 10);
+      if(e.isIntersecting) currentEntries.set(n, e.intersectionRatio);
+      else currentEntries.delete(n);
+    }
+    let best = null, bestRatio = -1;
+    currentEntries.forEach((ratio, n)=>{ if(ratio > bestRatio){ bestRatio = ratio; best = n; } });
+    if(best!=null) updatePageIndicator(best);
+  }
+
+  function updatePageIndicator(n){
+    pageIndicator.textContent = n + " / " + numPages;
+  }
+
+  async function renderPage(n, wrap){
+    if(!pdfDoc) return;
+    if(wrap.dataset.rendered === "1" || wrap.dataset.rendering === "1") return;
+    wrap.dataset.rendering = "1";
+    try{
+      const page = await getPageCached(n);
+      if(wrapperOf.get(n) !== wrap) return; // stale (rebuilt meanwhile)
+
+      const naturalVp = page.getViewport({ scale: 1 });
+      const targetWidth = viewerContentWidth() * (zoomPercent/100);
+      const targetHeight = targetWidth * (naturalVp.height / naturalVp.width);
+
+      wrap.style.width = targetWidth + "px";
+      wrap.style.height = targetHeight + "px";
+
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const finalScale = (targetWidth / naturalVp.width) * dpr;
+      const viewport = page.getViewport({ scale: finalScale });
+
+      let canvas = wrap.querySelector("canvas");
+      if(!canvas){
+        canvas = document.createElement("canvas");
+        wrap.insertBefore(canvas, wrap.firstChild);
+      }
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = (viewport.width/dpr) + "px";
+      canvas.style.height = (viewport.height/dpr) + "px";
+
+      const ctx = canvas.getContext("2d");
+      const task = page.render({ canvasContext: ctx, viewport });
+      wrap._renderTask = task;
+      await task.promise;
+      wrap.dataset.rendered = "1";
+      wrap.classList.remove("loading");
+    }catch(err){
+      if(!err || err.name !== "RenderingCancelledException"){
+        console.error("render error", n, err);
+      }
+    }finally{
+      wrap.dataset.rendering = "0";
+    }
+  }
+
+  function unrenderPage(wrap){
+    if(wrap._renderTask){
+      try{ wrap._renderTask.cancel(); }catch(e){}
+      wrap._renderTask = null;
+    }
+    const canvas = wrap.querySelector("canvas");
+    if(canvas){
+      canvas.width = 0; canvas.height = 0;
+      canvas.remove();
+    }
+    wrap.dataset.rendered = "0";
+    wrap.dataset.rendering = "0";
+    wrap.classList.add("loading");
+  }
+
+  function relayoutAll(){
+    if(!pdfDoc) return;
+    const { w, h } = placeholderSize();
+    wrapperOf.forEach((wrap)=>{
+      wrap.style.width = w + "px";
+      wrap.style.height = h + "px";
+      if(wrap.dataset.rendered === "1"){
+        unrenderPage(wrap);
+      }
+    });
+    // Re-trigger intersection observer evaluation by disconnecting/reconnecting.
+    if(io){
+      io.disconnect();
+      io = new IntersectionObserver(onLazyIntersect, {
+        root: viewer, rootMargin: "180% 0px 180% 0px", threshold: 0
+      });
+      wrapperOf.forEach(w => io.observe(w));
+    }
+  }
+
+  let resizeTimer = null;
+  window.addEventListener("resize", ()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(relayoutAll, 200);
+  });
+
+  // ---------- Zoom ----------
+  let zoomDebounce = null;
+  zoomRange.addEventListener("input", ()=>{
+    zoomPercent = parseInt(zoomRange.value, 10);
+    zoomVal.textContent = zoomPercent + "%";
+    saveSetting("zoom", zoomPercent);
+    clearTimeout(zoomDebounce);
+    zoomDebounce = setTimeout(relayoutAll, 120);
+  });
+
+  // ---------- Page range ----------
+  applyRangeBtn.addEventListener("click", ()=>{
+    if(!pdfDoc) return;
+    let from = parseInt(rangeFrom.value, 10) || 1;
+    let to = parseInt(rangeTo.value, 10) || numPages;
+    from = Math.max(1, Math.min(from, numPages));
+    to = Math.max(1, Math.min(to, numPages));
+    if(from > to){ const t=from; from=to; to=t; }
+    rangeFrom.value = from; rangeTo.value = to;
+    rangeStart = from; rangeEnd = to;
+    buildPages(from, to);
+    viewer.scrollTop = 0;
+    updatePageIndicator(from);
+    showToast("تم عرض الصفحات من " + from + " إلى " + to);
+  });
+
+  resetRangeBtn.addEventListener("click", ()=>{
+    if(!pdfDoc) return;
+    rangeFrom.value = 1; rangeTo.value = numPages;
+    rangeStart = 1; rangeEnd = numPages;
+    buildPages(1, numPages);
+    viewer.scrollTop = 0;
+    updatePageIndicator(1);
+    showToast("تم عرض الكتاب كاملًا");
+  });
+
+  // ---------- Night mode ----------
+  nightSwitch.addEventListener("click", ()=>{
+    nightMode = !nightMode;
+    nightSwitch.classList.toggle("on", nightMode);
+    viewer.classList.toggle("night", nightMode);
+    saveSetting("night", nightMode);
+  });
+
+  // ---------- Settings panel toggle ----------
+  settingsBtn.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    settingsPanel.classList.toggle("open");
+  });
+  document.addEventListener("click", (e)=>{
+    if(settingsPanel.classList.contains("open") &&
+       !settingsPanel.contains(e.target) && e.target !== settingsBtn){
+      settingsPanel.classList.remove("open");
+    }
+  });
+
+  // ---------- Auto-scroll (speed) ----------
+  speedRange.addEventListener("input", ()=>{
+    speedValue = parseInt(speedRange.value, 10);
+    speedVal.textContent = speedValue;
+    saveSetting("speed", speedValue);
+  });
+
+  function speedPxPerSec(){
+    // wide, fine-grained range: ~8px/s up to ~900px/s
+    return 8 + (speedValue/100) * 892;
+  }
+
+  function autoplayStep(ts){
+    if(!autoplay) return;
+    if(lastTs == null) lastTs = ts;
+    const dt = (ts - lastTs) / 1000;
+    lastTs = ts;
+    viewer.scrollTop += speedPxPerSec() * dt;
+    if(viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 2){
+      stopAutoplay();
+      showToast("وصلت إلى نهاية النطاق المحدد");
+      return;
+    }
+    rafId = requestAnimationFrame(autoplayStep);
+  }
+
+  function startAutoplay(){
+    if(!pdfDoc || autoplay) return;
+    autoplay = true; lastTs = null;
+    playBtn.textContent = "⏸️";
+    playBtn.classList.add("active");
+    rafId = requestAnimationFrame(autoplayStep);
+  }
+  function stopAutoplay(){
+    autoplay = false; lastTs = null;
+    if(rafId) cancelAnimationFrame(rafId);
+    playBtn.textContent = "▶️";
+    playBtn.classList.remove("active");
+  }
+  playBtn.addEventListener("click", ()=>{
+    if(autoplay) stopAutoplay(); else startAutoplay();
+  });
+
+  ["wheel","touchstart","pointerdown"].forEach(evt=>{
+    viewer.addEventListener(evt, ()=>{ if(autoplay) stopAutoplay(); }, { passive:true });
+  });
+
+  document.addEventListener("keydown", (e)=>{
+    if(e.code === "Space" && document.activeElement.tagName !== "INPUT"){
+      e.preventDefault();
+      if(autoplay) stopAutoplay(); else startAutoplay();
+    }
+  });
+
+  // ---------- Fullscreen ----------
+  let pseudoFullscreen = false;
+  function isRealFullscreen(){
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+  }
+  function enterFullscreen(){
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if(req){
+      req.call(el).catch(()=>{ enterPseudoFullscreen(); });
+    } else {
+      enterPseudoFullscreen();
+    }
+  }
+  function exitFullscreen(){
+    if(isRealFullscreen()){
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+    if(pseudoFullscreen) exitPseudoFullscreen();
+  }
+  function enterPseudoFullscreen(){
+    pseudoFullscreen = true;
+    document.body.classList.add("fullscreen-mode");
+    fsBtn.classList.add("active");
+    armToolbarHide();
+  }
+  function exitPseudoFullscreen(){
+    pseudoFullscreen = false;
+    document.body.classList.remove("fullscreen-mode");
+    fsBtn.classList.remove("active");
+    toolbar.classList.remove("hidden");
+    clearTimeout(hideTimer);
+  }
+
+  fsBtn.addEventListener("click", ()=>{
+    if(isRealFullscreen() || pseudoFullscreen) exitFullscreen();
+    else enterFullscreen();
+  });
+
+  document.addEventListener("fullscreenchange", onFsChange);
+  document.addEventListener("webkitfullscreenchange", onFsChange);
+  function onFsChange(){
+    if(isRealFullscreen()){
+      document.body.classList.add("fullscreen-mode");
+      fsBtn.classList.add("active");
+      armToolbarHide();
+    } else if(!pseudoFullscreen){
+      document.body.classList.remove("fullscreen-mode");
+      fsBtn.classList.remove("active");
+      toolbar.classList.remove("hidden");
+      clearTimeout(hideTimer);
+    }
+  }
+
+  // ---------- Toolbar auto-hide (fullscreen only) ----------
+  let hideTimer = null;
+  function armToolbarHide(){
+    toolbar.classList.remove("hidden");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(()=>{
+      if(document.body.classList.contains("fullscreen-mode")){
+        toolbar.classList.add("hidden");
+        settingsPanel.classList.remove("open");
+      }
+    }, 3000);
+  }
+  function showToolbarTemporarily(){
+    if(!document.body.classList.contains("fullscreen-mode")) return;
+    armToolbarHide();
+  }
+  viewer.addEventListener("pointerdown", showToolbarTemporarily);
+  viewer.addEventListener("touchstart", showToolbarTemporarily, { passive:true });
+
+  // ---------- Sleep timer ----------
+  function pad2(n){ return n<10 ? "0"+n : ""+n; }
+  function updateCountdownDisplay(){
+    if(!sleepEndTime){
+      countdownBadge.classList.remove("show");
+      return;
+    }
+    const remain = Math.max(0, sleepEndTime - Date.now());
+    const totalSec = Math.round(remain/1000);
+    const mm = Math.floor(totalSec/60), ss = totalSec%60;
+    countdownText.textContent = pad2(mm)+":"+pad2(ss);
+    countdownBadge.classList.add("show");
+  }
+  function startSleepTimer(minutes){
+    clearTimeout(sleepTimeoutId);
+    clearInterval(sleepIntervalId);
+    const ms = minutes * 60 * 1000;
+    sleepEndTime = Date.now() + ms;
+    sleepTimeoutId = setTimeout(()=>{
+      stopAutoplay();
+      sleepEndTime = null;
+      updateCountdownDisplay();
+      clearInterval(sleepIntervalId);
+      showToast("انتهى مؤقت النوم — تم إيقاف التمرير التلقائي");
+    }, ms);
+    sleepIntervalId = setInterval(updateCountdownDisplay, 1000);
+    updateCountdownDisplay();
+    showToast("سيتوقف التمرير التلقائي بعد " + minutes + " دقيقة");
+  }
+  function cancelSleepTimer(){
+    clearTimeout(sleepTimeoutId);
+    clearInterval(sleepIntervalId);
+    sleepEndTime = null;
+    updateCountdownDisplay();
+  }
+  sleepStartBtn.addEventListener("click", ()=>{
+    let m = parseInt(sleepMinutesInput.value, 10);
+    if(!m || m < 1) m = 20;
+    sleepMinutesInput.value = m;
+    saveSetting("sleepMinutes", m);
+    startSleepTimer(m);
+  });
+  sleepCancelBtn.addEventListener("click", ()=>{
+    cancelSleepTimer();
+    showToast("تم إلغاء مؤقت النوم");
+  });
+  sleepMinutesInput.addEventListener("change", ()=>{
+    let m = parseInt(sleepMinutesInput.value, 10);
+    if(m && m>=1) saveSetting("sleepMinutes", m);
+  });
+
+})();
+</script>
+</body>
+</html>
