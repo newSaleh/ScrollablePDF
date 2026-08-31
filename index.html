@@ -491,8 +491,8 @@
   }
 
   // ---------- Init UI from settings ----------
-  const ZOOM_MIN = 1, ZOOM_MAX = 100, ZOOM_STEP = 5;
-  const SPEED_MIN = 1, SPEED_MAX = 100, SPEED_STEP = 5;
+  const ZOOM_MIN = 1, ZOOM_MAX = 100, ZOOM_STEP = 1;
+  const SPEED_MIN = 1, SPEED_MAX = 100, SPEED_STEP = 1;
   zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPercent));
   speedValue = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speedValue));
   zoomRange.value = zoomPercent; updateZoomHint();
@@ -751,6 +751,11 @@
 
   function relayoutAll(){
     if(!pdfDoc) return;
+    // Every page's height is about to change (new zoom, or the viewport
+    // width changed on rotation), which shifts everyone's vertical
+    // position — keep the current scrollTop and you land on a different
+    // page. Remember which page was showing and re-scroll to it after.
+    const targetPage = currentPageNum;
     const { w, h } = placeholderSize();
     wrapperOf.forEach((wrap)=>{
       wrap.style.width = w + "px";
@@ -767,6 +772,7 @@
       });
       wrapperOf.forEach(w => io.observe(w));
     }
+    scrollToPage(targetPage);
   }
 
   let resizeTimer = null;
