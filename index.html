@@ -33,6 +33,7 @@
     height:100vh; height:100dvh;
     display:flex; flex-direction:column;
     overflow:hidden;
+    position:relative;
   }
 
   /* ---------- Toolbar ---------- */
@@ -48,6 +49,13 @@
     box-shadow:var(--shadow);
     position:relative; z-index:20;
     transition: transform .28s ease, opacity .28s ease;
+  }
+  body.fullscreen-mode #toolbar{
+    /* Overlay the toolbar instead of reserving its height in the flex
+       column — otherwise hiding it (translateY) still leaves a blank
+       gap where it used to sit, wasting screen space (very noticeable
+       in landscape on iPad/iPhone). */
+    position:absolute; top:0; left:0; right:0;
   }
   body.fullscreen-mode #toolbar.hidden{
     transform: translateY(-115%);
