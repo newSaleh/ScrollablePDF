@@ -52,8 +52,13 @@
     display:flex; align-items:center; gap:8px;
     padding:10px 12px;
     padding-top:calc(10px + var(--safe-t));
-    padding-inline-start:calc(12px + var(--safe-l));
-    padding-inline-end:calc(12px + var(--safe-r));
+    /* Physical left/right (not logical inline-start/end): this page is
+       RTL, where "inline-start" is the physical right — using the logical
+       properties here previously applied safe-area-inset-left to the
+       wrong side, leaving content uncovered by the iPhone's Dynamic
+       Island / notch in landscape. */
+    padding-left:calc(12px + var(--safe-l));
+    padding-right:calc(12px + var(--safe-r));
     background:var(--toolbar);
     border-bottom:1px solid var(--border);
     box-shadow:var(--shadow);
@@ -103,8 +108,8 @@
 
   /* ---------- Settings panel ---------- */
   #settingsPanel{
-    position:absolute; top:100%; inset-inline-end:8px;
-    width:min(340px, calc(100vw - 16px));
+    position:absolute; top:100%; left:calc(8px + var(--safe-l));
+    width:min(340px, calc(100vw - 16px - var(--safe-l)));
     background:var(--panel); border:1px solid var(--border); border-radius:14px;
     box-shadow:var(--shadow); padding:14px; margin-top:8px;
     display:none; max-height:calc(100dvh - 90px); overflow-y:auto;
@@ -154,7 +159,9 @@
   /* ---------- Drop zone ---------- */
   #dropzone{
     flex:1 1 auto; display:flex; align-items:center; justify-content:center;
-    padding:24px; text-align:center;
+    padding-top:24px; padding-bottom:calc(24px + var(--safe-b));
+    padding-left:calc(24px + var(--safe-l)); padding-right:calc(24px + var(--safe-r));
+    text-align:center;
   }
   #dropzone.hide{ display:none; }
   .dz-box{
@@ -174,7 +181,8 @@
     flex:1 1 auto; overflow-y:auto; overflow-x:hidden;
     -webkit-overflow-scrolling:touch;
     background:var(--bg);
-    padding:10px 0 calc(18px + var(--safe-b));
+    padding-top:10px; padding-bottom:calc(18px + var(--safe-b));
+    padding-left:var(--safe-l); padding-right:var(--safe-r);
     display:none;
   }
   #viewer.show{ display:block; }
@@ -850,11 +858,13 @@
   settingsBtn.addEventListener("click", (e)=>{
     e.stopPropagation();
     settingsPanel.classList.toggle("open");
+    if(document.body.classList.contains("fullscreen-mode")) armToolbarHide();
   });
   document.addEventListener("click", (e)=>{
     if(settingsPanel.classList.contains("open") &&
        !settingsPanel.contains(e.target) && e.target !== settingsBtn){
       settingsPanel.classList.remove("open");
+      if(document.body.classList.contains("fullscreen-mode")) armToolbarHide();
     }
   });
 
@@ -983,10 +993,13 @@
   function armToolbarHide(){
     toolbar.classList.remove("hidden");
     clearTimeout(hideTimer);
+    // Never auto-hide while the settings panel is open — the panel is
+    // anchored to the toolbar, so hiding it mid-adjustment (e.g. while
+    // dragging a slider) would yank the panel away under the user's finger.
+    if(settingsPanel.classList.contains("open")) return;
     hideTimer = setTimeout(()=>{
-      if(document.body.classList.contains("fullscreen-mode")){
+      if(document.body.classList.contains("fullscreen-mode") && !settingsPanel.classList.contains("open")){
         toolbar.classList.add("hidden");
-        settingsPanel.classList.remove("open");
       }
     }, 3000);
   }
@@ -996,6 +1009,10 @@
   }
   viewer.addEventListener("pointerdown", showToolbarTemporarily);
   viewer.addEventListener("touchstart", showToolbarTemporarily, { passive:true });
+  // Any interaction with the toolbar itself (tapping a button, dragging a
+  // slider, typing in a field) also resets the auto-hide countdown.
+  toolbar.addEventListener("pointerdown", showToolbarTemporarily);
+  toolbar.addEventListener("input", showToolbarTemporarily);
 
   // ---------- Sleep timer ----------
   function pad2(n){ return n<10 ? "0"+n : ""+n; }
