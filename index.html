@@ -89,11 +89,16 @@
   .tbtn:active{ background:var(--border); }
   .tbtn.active{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
   .tbtn.small{ font-size:13px; padding:8px; min-width:36px; min-height:36px; }
+  .tbtn.accent{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
 
   #pageIndicator{
+    appearance:none; border:1px solid transparent; background:transparent;
     font-size:13px; color:var(--muted); white-space:nowrap; min-width:66px; text-align:center;
     font-variant-numeric: tabular-nums;
+    padding:8px 6px; border-radius:9px; cursor:pointer; touch-action:manipulation;
+    font-family:inherit;
   }
+  #pageIndicator:active{ background:var(--border); }
   .spacer{ flex:1 1 auto; }
 
   /* ---------- Settings panel ---------- */
@@ -199,6 +204,27 @@
   }
   #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
+  /* ---------- Go-to-page modal ---------- */
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(20,17,10,.55);
+    display:none; align-items:center; justify-content:center; z-index:60;
+    padding:20px;
+  }
+  .modal-overlay.open{ display:flex; }
+  .modal-card{
+    background:var(--panel); border-radius:16px; padding:20px;
+    width:min(300px, 100%); box-shadow:var(--shadow);
+  }
+  .modal-card h3{ margin:0 0 14px; font-size:16px; text-align:center; }
+  .modal-card input[type=number]{
+    width:100%; padding:13px 10px; border:1px solid var(--border); border-radius:10px;
+    font-size:19px; text-align:center; background:var(--bg); color:var(--text);
+    font-variant-numeric:tabular-nums;
+  }
+  .modal-hint{ font-size:12px; color:var(--muted); margin-top:8px; text-align:center; }
+  .modal-card .btnrow{ margin-top:16px; }
+  .modal-card .btnrow .tbtn{ font-size:14px; padding:11px; }
+
   input[type=file]{ display:none; }
 </style>
 </head>
@@ -207,7 +233,7 @@
 
   <div id="toolbar">
     <button class="tbtn" id="openBtn" title="فتح ملف PDF">📂</button>
-    <span id="pageIndicator">—</span>
+    <button type="button" id="pageIndicator" title="الانتقال إلى صفحة">—</button>
     <div class="spacer"></div>
     <span class="brand">ScrollablePDF</span>
     <div class="spacer"></div>
@@ -275,10 +301,10 @@
     </div>
   </div>
 
-  <div id="dropzone">
+  <div id="dropzone" class="hide">
     <div class="dz-box" id="dzBox">
       <h2>📖 ScrollablePDF</h2>
-      <p>اختر كتاب PDF لبدء القراءة بتمرير عمودي فقط. الصفحات تُحمَّل عند الحاجة فقط أثناء التمرير، وليس دفعة واحدة.</p>
+      <p>اختر كتاب PDF لبدء القراءة بتمرير عمودي فقط. الصفحات تُحمَّل عند الحاجة فقط أثناء التمرير، وليس دفعة واحدة. سيبقى الكتاب محفوظًا في هذا الجهاز ليفتح تلقائيًا في المرة القادمة.</p>
       <button id="openBtnBig">اختر ملف PDF</button>
     </div>
   </div>
@@ -289,6 +315,18 @@
 
   <input type="file" id="fileInput" accept="application/pdf,.pdf">
   <div id="toast"></div>
+
+  <div id="gotoOverlay" class="modal-overlay">
+    <div class="modal-card">
+      <h3>الانتقال إلى صفحة</h3>
+      <input type="number" id="gotoInput" min="1" value="1" inputmode="numeric">
+      <div class="modal-hint" id="gotoHint"></div>
+      <div class="btnrow">
+        <button class="tbtn" id="gotoCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="gotoConfirmBtn" type="button">انتقال</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -333,11 +371,17 @@
   const countdownBadge = $("countdownBadge");
   const countdownText = $("countdownText");
   const toastEl = $("toast");
+  const gotoOverlay = $("gotoOverlay");
+  const gotoInput = $("gotoInput");
+  const gotoHint = $("gotoHint");
+  const gotoCancelBtn = $("gotoCancelBtn");
+  const gotoConfirmBtn = $("gotoConfirmBtn");
 
   // ---------- State ----------
   let pdfDoc = null;
   let numPages = 0;
   let rangeStart = 1, rangeEnd = 1;
+  let currentPageNum = 1;
   let zoomPercent = loadSetting("zoom", 100);
   let speedValue = loadSetting("speed", 25);
   let nightMode = loadSetting("night", false);
@@ -361,6 +405,72 @@
   }
   function saveSetting(key, value){
     try{ localStorage.setItem("spdf_"+key, JSON.stringify(value)); }catch(e){}
+  }
+
+  // ---------- Book persistence (IndexedDB) ----------
+  // "bookdata" holds the PDF bytes (written once per opened file, can be
+  // large). "meta" holds just the page range + last-read page (written
+  // often while scrolling, so it's kept separate and small).
+  const DB_NAME = "scrollablepdf-db";
+  const DB_VERSION = 1;
+  let dbPromise = null;
+  function openDB(){
+    if(dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject)=>{
+      if(!window.indexedDB){ reject(new Error("indexedDB unsupported")); return; }
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = ()=>{
+        const db = req.result;
+        if(!db.objectStoreNames.contains("bookdata")) db.createObjectStore("bookdata", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath:"id" });
+      };
+      req.onsuccess = ()=> resolve(req.result);
+      req.onerror = ()=> reject(req.error);
+    });
+    return dbPromise;
+  }
+  async function idbPut(storeName, value){
+    const db = await openDB();
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).put(value);
+      tx.oncomplete = ()=> resolve();
+      tx.onerror = ()=> reject(tx.error);
+    });
+  }
+  async function idbGet(storeName, key){
+    try{
+      const db = await openDB();
+      return await new Promise((resolve, reject)=>{
+        const tx = db.transaction(storeName, "readonly");
+        const req = tx.objectStore(storeName).get(key);
+        req.onsuccess = ()=> resolve(req.result || null);
+        req.onerror = ()=> reject(req.error);
+      });
+    }catch(e){ console.error("idbGet failed", e); return null; }
+  }
+  async function saveBookData(name, size, data){
+    try{
+      await idbPut("bookdata", { id:"current", name, size, data, savedAt: Date.now() });
+    }catch(e){
+      console.error("saveBookData failed", e);
+      showToast("تعذر حفظ نسخة من الكتاب لفتحه تلقائيًا لاحقًا (قد تكون مساحة التخزين ممتلئة)");
+    }
+  }
+  async function saveMeta(meta){
+    try{ await idbPut("meta", Object.assign({ id:"current" }, meta)); }
+    catch(e){ console.error("saveMeta failed", e); }
+  }
+  async function loadBookData(){ return idbGet("bookdata", "current"); }
+  async function loadMeta(){ return idbGet("meta", "current"); }
+
+  let metaSaveTimer = null;
+  function scheduleMetaSave(){
+    if(!pdfDoc) return;
+    clearTimeout(metaSaveTimer);
+    metaSaveTimer = setTimeout(()=>{
+      saveMeta({ range: { from: rangeStart, to: rangeEnd }, lastPage: currentPageNum });
+    }, 800);
   }
 
   // ---------- Toast ----------
@@ -407,11 +517,26 @@
       showToast("الرجاء اختيار ملف PDF صالح");
       return;
     }
+    showToast("جارٍ فتح الملف…", 1500);
+    let buf;
+    try{
+      buf = await file.arrayBuffer();
+    }catch(err){
+      console.error(err);
+      showToast("تعذر قراءة الملف");
+      return;
+    }
+    await openFromBytes(buf, file.name, { persist:true });
+  }
+
+  // opts: { persist, range:{from,to}, gotoPage }
+  async function openFromBytes(buf, name, opts){
+    opts = opts || {};
     try{
       resetAll();
-      showToast("جارٍ فتح الملف…", 1500);
-      const buf = await file.arrayBuffer();
-      const loadingTask = pdfjsLib.getDocument({ data: buf });
+      // pdf.js may transfer/detach the ArrayBuffer it's given, so hand it a
+      // copy and keep the original `buf` intact for persisting below.
+      const loadingTask = pdfjsLib.getDocument({ data: buf.slice(0) });
       pdfDoc = await loadingTask.promise;
       numPages = pdfDoc.numPages;
 
@@ -419,23 +544,44 @@
       const vp1 = page1.getViewport({ scale: 1 });
       baseAspect = vp1.height / vp1.width;
 
-      rangeStart = 1; rangeEnd = numPages;
-      rangeFrom.min = 1; rangeFrom.max = numPages; rangeFrom.value = 1;
-      rangeTo.min = 1; rangeTo.max = numPages; rangeTo.value = numPages;
+      let from = 1, to = numPages;
+      if(opts.range && opts.range.from && opts.range.to){
+        from = Math.max(1, Math.min(opts.range.from, numPages));
+        to = Math.max(1, Math.min(opts.range.to, numPages));
+        if(from > to){ const t=from; from=to; to=t; }
+      }
+      rangeStart = from; rangeEnd = to;
+      rangeFrom.min = 1; rangeFrom.max = numPages; rangeFrom.value = from;
+      rangeTo.min = 1; rangeTo.max = numPages; rangeTo.value = to;
       totalPagesHint.textContent = "عدد صفحات الكتاب: " + numPages;
 
       dropzone.classList.add("hide");
       viewer.classList.add("show");
 
-      buildPages(rangeStart, rangeEnd);
+      buildPages(from, to);
+
+      let goto = opts.gotoPage ? Math.max(from, Math.min(opts.gotoPage, to)) : from;
       viewer.scrollTop = 0;
-      updatePageIndicator(rangeStart);
+      if(goto !== from) scrollToPage(goto);
+      updatePageIndicator(goto);
+
+      if(opts.persist){
+        saveBookData(name, buf.byteLength, buf);
+        saveMeta({ range: { from, to }, lastPage: goto });
+      }
     }catch(err){
       console.error(err);
       showToast("تعذر فتح الملف، تأكد أنه ملف PDF صالح");
       dropzone.classList.remove("hide");
       viewer.classList.remove("show");
     }
+  }
+
+  function scrollToPage(n){
+    const wrap = wrapperOf.get(n);
+    if(!wrap) return;
+    const delta = wrap.getBoundingClientRect().top - viewer.getBoundingClientRect().top;
+    viewer.scrollTop += delta;
   }
 
   function resetAll(){
@@ -499,6 +645,7 @@
     wrapperOf.forEach(w => io.observe(w));
 
     if(ioCurrent) ioCurrent.disconnect();
+    currentEntries.clear(); // drop stale ratios from the previous page set
     ioCurrent = new IntersectionObserver(onCurrentIntersect, {
       root: viewer, threshold: [0, 0.25, 0.5, 0.75, 1]
     });
@@ -530,7 +677,9 @@
   }
 
   function updatePageIndicator(n){
+    currentPageNum = n;
     pageIndicator.textContent = n + " / " + numPages;
+    scheduleMetaSave();
   }
 
   async function renderPage(n, wrap){
@@ -661,6 +810,32 @@
     viewer.scrollTop = 0;
     updatePageIndicator(1);
     showToast("تم عرض الكتاب كاملًا");
+  });
+
+  // ---------- Go to page (with confirmation) ----------
+  pageIndicator.addEventListener("click", ()=>{
+    if(!pdfDoc) return;
+    gotoInput.min = rangeStart; gotoInput.max = rangeEnd;
+    gotoInput.value = currentPageNum;
+    gotoHint.textContent = "من " + rangeStart + " إلى " + rangeEnd;
+    gotoOverlay.classList.add("open");
+    gotoInput.focus();
+    gotoInput.select();
+  });
+  function closeGotoModal(){ gotoOverlay.classList.remove("open"); }
+  gotoCancelBtn.addEventListener("click", closeGotoModal);
+  gotoOverlay.addEventListener("click", (e)=>{ if(e.target === gotoOverlay) closeGotoModal(); });
+  gotoConfirmBtn.addEventListener("click", ()=>{
+    let n = parseInt(gotoInput.value, 10);
+    closeGotoModal();
+    if(!pdfDoc || !n || isNaN(n)) return;
+    n = Math.max(rangeStart, Math.min(n, rangeEnd));
+    if(autoplay) stopAutoplay();
+    scrollToPage(n);
+    updatePageIndicator(n);
+  });
+  gotoInput.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter") gotoConfirmBtn.click();
   });
 
   // ---------- Night mode ----------
@@ -872,6 +1047,27 @@
     let m = parseInt(sleepMinutesInput.value, 10);
     if(m && m>=1) saveSetting("sleepMinutes", m);
   });
+
+  // ---------- Restore the last book on load ----------
+  (async function tryRestoreBook(){
+    try{
+      const rec = await loadBookData();
+      if(!rec || !rec.data){
+        dropzone.classList.remove("hide");
+        return;
+      }
+      const meta = await loadMeta();
+      showToast("جارٍ استعادة آخر كتاب…", 1500);
+      await openFromBytes(rec.data, rec.name, {
+        persist: false,
+        range: meta && meta.range,
+        gotoPage: meta && meta.lastPage
+      });
+    }catch(e){
+      console.error("restore failed", e);
+      dropzone.classList.remove("hide");
+    }
+  })();
 
 })();
 </script>
