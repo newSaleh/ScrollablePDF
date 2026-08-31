@@ -254,7 +254,7 @@
         <label>حجم الصفحة</label>
         <div class="row">
           <button class="stepbtn" id="zoomMinus" type="button" title="تصغير">−</button>
-          <input type="range" id="zoomRange" min="1" max="100" step="1" value="100">
+          <input type="range" id="zoomRange" min="1" max="130" step="1" value="100">
           <button class="stepbtn" id="zoomPlus" type="button" title="تكبير">＋</button>
         </div>
         <div class="hint" id="zoomHint">100% — الصفحة بعرض الشاشة كاملًا</div>
@@ -491,7 +491,7 @@
   }
 
   // ---------- Init UI from settings ----------
-  const ZOOM_MIN = 1, ZOOM_MAX = 100, ZOOM_STEP = 1;
+  const ZOOM_MIN = 1, ZOOM_MAX = 130, ZOOM_STEP = 1;
   const SPEED_MIN = 1, SPEED_MAX = 100, SPEED_STEP = 1;
   zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPercent));
   speedValue = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speedValue));
@@ -784,9 +784,9 @@
   // ---------- Zoom ----------
   let zoomDebounce = null;
   function updateZoomHint(){
-    zoomHint.textContent = zoomPercent === 100
-      ? "100% — الصفحة بعرض الشاشة كاملًا"
-      : zoomPercent + "%";
+    if(zoomPercent === 100) zoomHint.textContent = "100% — الصفحة بعرض الشاشة كاملًا";
+    else if(zoomPercent > 100) zoomHint.textContent = zoomPercent + "% — تُقتطع حواف الصفحة الزائدة";
+    else zoomHint.textContent = zoomPercent + "%";
   }
   function setZoom(val){
     zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, Math.round(val)));
