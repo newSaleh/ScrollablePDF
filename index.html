@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>ScrollablePDF — قارئ كتب PDF</title>
 <meta name="description" content="قارئ PDF عمودي خفيف، يعرض الصفحات عند الحاجة فقط، مع تمرير تلقائي وملء الشاشة ومؤقت نوم.">
+<meta name="theme-color" content="#f2f1ec">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!-- iOS: launching from an "Add to Home Screen" icon opens without any
+     Safari chrome (address bar / tab bar) — that chrome cannot be hidden
+     from inside a regular Safari tab, only a standalone home-screen app. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ScrollablePDF">
 <style>
   :root{
     --bg:#f2f1ec;
@@ -758,7 +768,7 @@
     pseudoFullscreen = true;
     document.body.classList.add("fullscreen-mode");
     fsBtn.classList.add("active");
-    armToolbarHide();
+    hideToolbarNow();
   }
   function exitPseudoFullscreen(){
     pseudoFullscreen = false;
@@ -779,7 +789,7 @@
     if(isRealFullscreen()){
       document.body.classList.add("fullscreen-mode");
       fsBtn.classList.add("active");
-      armToolbarHide();
+      hideToolbarNow();
     } else if(!pseudoFullscreen){
       document.body.classList.remove("fullscreen-mode");
       fsBtn.classList.remove("active");
@@ -790,6 +800,11 @@
 
   // ---------- Toolbar auto-hide (fullscreen only) ----------
   let hideTimer = null;
+  function hideToolbarNow(){
+    clearTimeout(hideTimer);
+    toolbar.classList.add("hidden");
+    settingsPanel.classList.remove("open");
+  }
   function armToolbarHide(){
     toolbar.classList.remove("hidden");
     clearTimeout(hideTimer);
