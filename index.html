@@ -144,6 +144,13 @@
   .btnrow .tbtn{ flex:1; font-size:13px; }
   hr.sep{ border:none; border-top:1px solid var(--border); margin:14px 0; }
   .switch-row{ display:flex; align-items:center; justify-content:space-between; }
+  .link-btn{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    padding:11px; border:1px solid var(--border); border-radius:10px;
+    background:var(--bg); color:var(--text); text-decoration:none;
+    font-size:14px; touch-action:manipulation;
+  }
+  .link-btn:active{ background:var(--border); }
   .switch{
     position:relative; width:44px; height:26px; border-radius:20px; background:var(--border);
     cursor:pointer; flex:0 0 auto; transition:background .2s;
@@ -326,6 +333,12 @@
       </div>
 
       <hr class="sep">
+
+      <div class="field">
+        <a class="link-btn" href="https://newsaleh.github.io/Writing/">✍️ الانتقال إلى صفحة الكتابة</a>
+      </div>
+
+      <hr class="sep">
       <div class="hint" id="buildInfo" style="text-align:center;"></div>
     </div>
   </div>
@@ -381,7 +394,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.6";
+  const BUILD_VERSION = "2026-09-01.7";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
