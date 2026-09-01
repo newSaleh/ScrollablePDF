@@ -852,7 +852,6 @@
     closeGotoModal();
     if(!pdfDoc || !n || isNaN(n)) return;
     n = Math.max(rangeStart, Math.min(n, rangeEnd));
-    if(autoplay) stopAutoplay();
     scrollToPage(n);
     updatePageIndicator(n);
   });
@@ -915,6 +914,14 @@
     if(lastTs == null){ lastTs = ts; scrollAccumulator = viewer.scrollTop; }
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
+    // scrollTop may have moved for a reason other than our own last write
+    // (the user manually swiped/dragged, jumped via "go to page", or a
+    // rotation repositioned it) — pick up from there instead of snapping
+    // back to where the accumulator thinks it should be, so auto-scroll
+    // just keeps going rather than fighting or requiring a restart.
+    if(Math.abs(viewer.scrollTop - scrollAccumulator) > 2){
+      scrollAccumulator = viewer.scrollTop;
+    }
     scrollAccumulator += speedPxPerSec() * dt;
     viewer.scrollTop = scrollAccumulator;
     if(viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 2){
@@ -964,10 +971,6 @@
     etaBadge.hidden = false;
     etaBadge.textContent = "⏳ متبقٍ " + formatDuration(remainingPx / pxPerSec);
   }
-
-  ["wheel","touchstart","pointerdown"].forEach(evt=>{
-    viewer.addEventListener(evt, ()=>{ if(autoplay) stopAutoplay(); }, { passive:true });
-  });
 
   document.addEventListener("keydown", (e)=>{
     if(e.code === "Space" && document.activeElement.tagName !== "INPUT"){
