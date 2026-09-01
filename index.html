@@ -232,6 +232,19 @@
   #updateBanner button:active{ background:rgba(255,255,255,.2); }
   #updateDismissBtn{ padding:7px 9px !important; }
 
+  /* ---------- Sleep-timer dim screen ---------- */
+  .sleep-dim{
+    position:fixed; inset:0; background:#000; z-index:100;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; touch-action:manipulation;
+  }
+  .sleep-dim[hidden]{ display:none; }
+  .sleep-dim-msg{
+    color:#3a3a3a; font-size:14px; text-align:center; line-height:2;
+    user-select:none;
+  }
+  .sleep-dim-hint{ font-size:11px; color:#2a2a2a; }
+
   /* ---------- Go-to-page modal ---------- */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(20,17,10,.55);
@@ -305,7 +318,7 @@
       <div class="field">
         <label>مؤقت النوم (توقف تلقائي بعد X دقيقة)</label>
         <div class="row">
-          <input type="number" id="sleepMinutes" min="1" max="240" value="20">
+          <input type="number" id="sleepMinutes" min="1" max="240" value="30">
           <button class="tbtn small" id="sleepStartBtn">ابدأ</button>
           <button class="tbtn small" id="sleepCancelBtn">إلغاء</button>
         </div>
@@ -338,6 +351,10 @@
     <button id="updateDismissBtn" type="button" aria-label="إغلاق">✕</button>
   </div>
 
+  <div id="sleepDimOverlay" class="sleep-dim" hidden>
+    <div class="sleep-dim-msg">🌙 تصبح على خير<br><span class="sleep-dim-hint">المس للعودة</span></div>
+  </div>
+
   <div id="gotoOverlay" class="modal-overlay">
     <div class="modal-card">
       <h3>الانتقال إلى صفحة</h3>
@@ -364,7 +381,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.4";
+  const BUILD_VERSION = "2026-09-01.5";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -403,6 +420,7 @@
   const updateBanner = $("updateBanner");
   const updateNowBtn = $("updateNowBtn");
   const updateDismissBtn = $("updateDismissBtn");
+  const sleepDimOverlay = $("sleepDimOverlay");
   const gotoOverlay = $("gotoOverlay");
   const gotoInput = $("gotoInput");
   const gotoHint = $("gotoHint");
@@ -417,7 +435,7 @@
   let zoomPercent = loadSetting("zoom", 100);
   let speedValue = loadSetting("speed", 7);
   let nightMode = loadSetting("night", false);
-  let sleepDefaultMinutes = loadSetting("sleepMinutes", 20);
+  let sleepDefaultMinutes = loadSetting("sleepMinutes", 30);
   const pageCache = new Map();      // pageNum -> pdf.js page proxy
   const wrapperOf = new Map();      // pageNum -> wrapper element
   let baseAspect = null;            // height/width ratio of page 1, used for placeholder sizing
@@ -614,6 +632,7 @@
       viewer.scrollTop = 0;
       if(goto !== rangeStart) scrollToPage(goto);
       updatePageIndicator(goto);
+      acquireWakeLock();
 
       if(opts.persist){
         saveBookData(name, buf.byteLength, buf);
@@ -636,6 +655,7 @@
 
   function resetAll(){
     stopAutoplay();
+    releaseWakeLock();
     if(io) io.disconnect();
     if(ioCurrent) ioCurrent.disconnect();
     pagesEl.innerHTML = "";
@@ -1092,6 +1112,37 @@
   });
   toolbar.addEventListener("input", showToolbarTemporarily);
 
+  // ---------- Keep the screen awake while reading ----------
+  // Requests the Screen Wake Lock while a book is open so the phone
+  // doesn't auto-lock mid-read (especially during hands-free auto-scroll).
+  // The sleep timer below is what eventually releases it again.
+  let wakeLock = null;
+  async function acquireWakeLock(){
+    if(!("wakeLock" in navigator)) return;
+    releaseWakeLock();
+    try{ wakeLock = await navigator.wakeLock.request("screen"); }
+    catch(e){ /* denied, unsupported in this context, low-power mode, etc. */ }
+  }
+  function releaseWakeLock(){
+    if(wakeLock){
+      const w = wakeLock;
+      wakeLock = null;
+      w.release().catch(()=>{});
+    }
+  }
+  document.addEventListener("visibilitychange", ()=>{
+    // The OS/browser force-releases the lock whenever the tab is hidden
+    // (switching apps, locking manually, etc.) — it must be re-requested
+    // once visible again, or it silently never re-engages.
+    if(document.visibilityState === "visible" && pdfDoc && sleepDimOverlay.hidden){
+      acquireWakeLock();
+    }
+  });
+  sleepDimOverlay.addEventListener("click", ()=>{
+    sleepDimOverlay.hidden = true;
+    if(pdfDoc) acquireWakeLock();
+  });
+
   // ---------- Sleep timer ----------
   function pad2(n){ return n<10 ? "0"+n : ""+n; }
   function updateCountdownDisplay(){
@@ -1115,7 +1166,9 @@
       sleepEndTime = null;
       updateCountdownDisplay();
       clearInterval(sleepIntervalId);
-      showToast("انتهى مؤقت النوم — تم إيقاف التمرير التلقائي");
+      releaseWakeLock();
+      sleepDimOverlay.hidden = false;
+      showToast("انتهى مؤقت النوم");
     }, ms);
     sleepIntervalId = setInterval(updateCountdownDisplay, 1000);
     updateCountdownDisplay();
@@ -1129,7 +1182,7 @@
   }
   sleepStartBtn.addEventListener("click", ()=>{
     let m = parseInt(sleepMinutesInput.value, 10);
-    if(!m || m < 1) m = 20;
+    if(!m || m < 1) m = 30;
     sleepMinutesInput.value = m;
     saveSetting("sleepMinutes", m);
     startSleepTimer(m);
