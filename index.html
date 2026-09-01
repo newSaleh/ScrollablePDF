@@ -313,6 +313,9 @@
         </div>
         <div id="countdownBadge">متبقٍ: <span id="countdownText">00:00</span></div>
       </div>
+
+      <hr class="sep">
+      <div class="hint" id="buildInfo" style="text-align:center;"></div>
     </div>
   </div>
 
@@ -348,6 +351,13 @@
 <script>
 (function(){
   "use strict";
+
+  // Bump this on every meaningful change — shown at the bottom of the
+  // settings panel so it's easy to confirm a device is actually on the
+  // latest version rather than a stale cached copy (this matters a lot on
+  // iOS: Home Screen "standalone" apps in particular don't reliably
+  // re-fetch on launch the way a normal browser tab does).
+  const BUILD_VERSION = "2026-09-01.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -385,6 +395,7 @@
   const sleepStartBtn = $("sleepStartBtn");
   const sleepCancelBtn = $("sleepCancelBtn");
   const countdownBadge = $("countdownBadge");
+  const buildInfo = $("buildInfo");
   const countdownText = $("countdownText");
   const toastEl = $("toast");
   const gotoOverlay = $("gotoOverlay");
@@ -507,6 +518,7 @@
   speedRange.value = speedValue; updateSpeedHint();
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
+  buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
 
   // ---------- File opening ----------
   openBtn.addEventListener("click", ()=> fileInput.click());
@@ -1066,24 +1078,15 @@
   // ---------- Tap-to-pause while auto-scrolling ----------
   // A plain tap on the book (not a drag/swipe) instantly pauses auto-scroll
   // — the fastest way to stop it without looking, e.g. mid-conversation.
-  // Dragging to manually scroll or jump around is left alone (see
-  // autoplayStep's drift-resync above), only a real tap pauses.
-  const TAP_MAX_MOVE = 10, TAP_MAX_DURATION = 350;
-  let tapStartX = null, tapStartY = null, tapStartTime = 0, tapMoved = false;
-  viewer.addEventListener("pointerdown", (e)=>{
-    tapStartX = e.clientX; tapStartY = e.clientY; tapStartTime = Date.now(); tapMoved = false;
-  });
-  viewer.addEventListener("pointermove", (e)=>{
-    if(tapStartX == null) return;
-    if(Math.abs(e.clientX - tapStartX) > TAP_MAX_MOVE || Math.abs(e.clientY - tapStartY) > TAP_MAX_MOVE){
-      tapMoved = true;
-    }
-  });
-  viewer.addEventListener("pointerup", ()=>{
-    if(tapStartX == null) return;
-    const wasTap = !tapMoved && (Date.now() - tapStartTime) < TAP_MAX_DURATION;
-    tapStartX = null;
-    if(wasTap && autoplay){
+  // Using the native "click" event rather than hand-rolled pointer tracking:
+  // every touch browser (iOS Safari included) already suppresses the click
+  // when a touch turned into a scroll/drag and only fires it for a real
+  // tap, which is exactly the tap-vs-drag distinction needed here — no
+  // custom movement/duration thresholds to get wrong. Dragging to manually
+  // scroll or jump around is left alone (see autoplayStep's drift-resync
+  // above), only a real tap pauses.
+  viewer.addEventListener("click", ()=>{
+    if(autoplay){
       stopAutoplay();
       showToast("تم إيقاف التمرير التلقائي");
     }
