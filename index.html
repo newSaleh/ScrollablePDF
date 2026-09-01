@@ -1062,6 +1062,32 @@
   // Any interaction with the toolbar itself (tapping a button, dragging a
   // slider, typing in a field) also resets the auto-hide countdown.
   toolbar.addEventListener("pointerdown", showToolbarTemporarily);
+
+  // ---------- Tap-to-pause while auto-scrolling ----------
+  // A plain tap on the book (not a drag/swipe) instantly pauses auto-scroll
+  // — the fastest way to stop it without looking, e.g. mid-conversation.
+  // Dragging to manually scroll or jump around is left alone (see
+  // autoplayStep's drift-resync above), only a real tap pauses.
+  const TAP_MAX_MOVE = 10, TAP_MAX_DURATION = 350;
+  let tapStartX = null, tapStartY = null, tapStartTime = 0, tapMoved = false;
+  viewer.addEventListener("pointerdown", (e)=>{
+    tapStartX = e.clientX; tapStartY = e.clientY; tapStartTime = Date.now(); tapMoved = false;
+  });
+  viewer.addEventListener("pointermove", (e)=>{
+    if(tapStartX == null) return;
+    if(Math.abs(e.clientX - tapStartX) > TAP_MAX_MOVE || Math.abs(e.clientY - tapStartY) > TAP_MAX_MOVE){
+      tapMoved = true;
+    }
+  });
+  viewer.addEventListener("pointerup", ()=>{
+    if(tapStartX == null) return;
+    const wasTap = !tapMoved && (Date.now() - tapStartTime) < TAP_MAX_DURATION;
+    tapStartX = null;
+    if(wasTap && autoplay){
+      stopAutoplay();
+      showToast("تم إيقاف التمرير التلقائي");
+    }
+  });
   toolbar.addEventListener("input", showToolbarTemporarily);
 
   // ---------- Sleep timer ----------
