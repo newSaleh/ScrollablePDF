@@ -105,6 +105,12 @@
   }
   #pageIndicator:active{ background:var(--border); }
   .spacer{ flex:1 1 auto; }
+  .eta-badge{
+    font-size:12px; color:var(--muted); white-space:nowrap;
+    align-items:center; gap:4px; display:flex;
+    font-variant-numeric:tabular-nums;
+  }
+  .eta-badge[hidden]{ display:none; }
 
   /* ---------- Settings panel ---------- */
   #settingsPanel{
@@ -244,6 +250,7 @@
     <button type="button" id="pageIndicator" title="الانتقال إلى صفحة">—</button>
     <div class="spacer"></div>
     <span class="brand">ScrollablePDF</span>
+    <span id="etaBadge" class="eta-badge" hidden></span>
     <div class="spacer"></div>
     <button class="tbtn" id="playBtn" title="تمرير تلقائي">▶️</button>
     <button class="tbtn" id="fsBtn" title="ملء الشاشة">⛶</button>
@@ -358,6 +365,7 @@
   const pagesEl = $("pages");
   const pageIndicator = $("pageIndicator");
   const playBtn = $("playBtn");
+  const etaBadge = $("etaBadge");
   const fsBtn = $("fsBtn");
   const zoomRange = $("zoomRange");
   const zoomHint = $("zoomHint");
@@ -400,7 +408,7 @@
   let io = null;                    // IntersectionObserver for lazy render
   let ioCurrent = null;             // IntersectionObserver for current-page tracking
 
-  let autoplay = false, lastTs = null, rafId = null;
+  let autoplay = false, lastTs = null, rafId = null, etaIntervalId = null;
   let sleepTimeoutId = null, sleepEndTime = null, sleepIntervalId = null;
 
   // ---------- Settings persistence ----------
@@ -883,6 +891,7 @@
     speedRange.value = speedValue;
     updateSpeedHint();
     saveSetting("speed", speedValue);
+    updateEtaBadge();
   }
   speedRange.addEventListener("input", ()=> setSpeed(parseInt(speedRange.value, 10)));
   speedMinus.addEventListener("click", ()=> setSpeed(speedValue - SPEED_STEP));
@@ -913,16 +922,39 @@
     playBtn.textContent = "⏸️";
     playBtn.classList.add("active");
     rafId = requestAnimationFrame(autoplayStep);
+    updateEtaBadge();
+    clearInterval(etaIntervalId);
+    etaIntervalId = setInterval(updateEtaBadge, 1000);
   }
   function stopAutoplay(){
     autoplay = false; lastTs = null;
     if(rafId) cancelAnimationFrame(rafId);
     playBtn.textContent = "▶️";
     playBtn.classList.remove("active");
+    clearInterval(etaIntervalId);
+    etaBadge.hidden = true;
   }
   playBtn.addEventListener("click", ()=>{
     if(autoplay) stopAutoplay(); else startAutoplay();
   });
+
+  // ---------- Estimated time to the end (while auto-scrolling) ----------
+  function formatDuration(totalSeconds){
+    totalSeconds = Math.max(0, Math.round(totalSeconds));
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.round((totalSeconds % 3600) / 60);
+    if(h > 0) return h + "س " + m + "د";
+    if(m > 0) return m + "د";
+    return "أقل من دقيقة";
+  }
+  function updateEtaBadge(){
+    if(!autoplay){ etaBadge.hidden = true; return; }
+    const pxPerSec = speedPxPerSec();
+    const remainingPx = Math.max(0, viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight);
+    if(pxPerSec <= 0){ etaBadge.hidden = true; return; }
+    etaBadge.hidden = false;
+    etaBadge.textContent = "⏳ متبقٍ " + formatDuration(remainingPx / pxPerSec);
+  }
 
   ["wheel","touchstart","pointerdown"].forEach(evt=>{
     viewer.addEventListener(evt, ()=>{ if(autoplay) stopAutoplay(); }, { passive:true });
