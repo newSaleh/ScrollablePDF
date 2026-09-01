@@ -218,6 +218,23 @@
   }
   #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
+  #updateBanner{
+    position:fixed; left:12px; right:12px; bottom:calc(14px + var(--safe-b));
+    z-index:55; background:var(--accent); color:#fff;
+    border-radius:12px; padding:10px 12px;
+    display:flex; align-items:center; gap:10px; box-shadow:var(--shadow);
+    font-size:13px;
+  }
+  #updateBanner[hidden]{ display:none; }
+  #updateBanner span{ flex:1 1 auto; }
+  #updateBanner button{
+    appearance:none; border:1px solid rgba(255,255,255,.6); background:transparent;
+    color:#fff; border-radius:9px; padding:7px 12px; font-size:13px; cursor:pointer;
+    touch-action:manipulation; flex:0 0 auto;
+  }
+  #updateBanner button:active{ background:rgba(255,255,255,.2); }
+  #updateDismissBtn{ padding:7px 9px !important; }
+
   /* ---------- Go-to-page modal ---------- */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(20,17,10,.55);
@@ -334,6 +351,12 @@
   <input type="file" id="fileInput" accept="application/pdf,.pdf">
   <div id="toast"></div>
 
+  <div id="updateBanner" class="update-banner" hidden>
+    <span>يوجد تحديث جديد للصفحة</span>
+    <button id="updateNowBtn" type="button">تحديث الآن</button>
+    <button id="updateDismissBtn" type="button" aria-label="إغلاق">✕</button>
+  </div>
+
   <div id="gotoOverlay" class="modal-overlay">
     <div class="modal-card">
       <h3>الانتقال إلى صفحة</h3>
@@ -357,7 +380,10 @@
   // latest version rather than a stale cached copy (this matters a lot on
   // iOS: Home Screen "standalone" apps in particular don't reliably
   // re-fetch on launch the way a normal browser tab does).
-  const BUILD_VERSION = "2026-09-01.2";
+  // Keep this in sync with version.txt — every deploy should bump both to
+  // the same value so the update-checker below only fires for people who
+  // are genuinely behind, never for a freshly-loaded copy of the latest.
+  const BUILD_VERSION = "2026-09-01.3";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -398,6 +424,9 @@
   const buildInfo = $("buildInfo");
   const countdownText = $("countdownText");
   const toastEl = $("toast");
+  const updateBanner = $("updateBanner");
+  const updateNowBtn = $("updateNowBtn");
+  const updateDismissBtn = $("updateDismissBtn");
   const gotoOverlay = $("gotoOverlay");
   const gotoInput = $("gotoInput");
   const gotoHint = $("gotoHint");
@@ -519,6 +548,32 @@
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
   buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
+
+  // ---------- Update check ----------
+  // Fetches the small version.txt file straight from the network (never
+  // cached) and compares it to the version baked into this loaded copy of
+  // the page. If they differ, this tab is running stale code — most likely
+  // from GitHub Pages' CDN cache or iOS's stubborn caching of Home Screen
+  // "standalone" apps — so offer a one-tap way to force a genuinely fresh
+  // load rather than leaving the user to guess why a fix "isn't working".
+  async function checkForUpdate(){
+    try{
+      const res = await fetch("version.txt?_=" + Date.now(), { cache: "no-store" });
+      if(!res.ok) return;
+      const remoteVersion = (await res.text()).trim();
+      if(remoteVersion && remoteVersion !== BUILD_VERSION){
+        updateBanner.hidden = false;
+      }
+    }catch(e){ /* offline, or the request was blocked — nothing to do */ }
+  }
+  updateNowBtn.addEventListener("click", ()=>{
+    // A plain reload() can still be served from a sticky cache (this is
+    // exactly what got reported before) — navigating to a fresh URL
+    // guarantees a real network fetch.
+    location.href = location.pathname + "?v=" + Date.now();
+  });
+  updateDismissBtn.addEventListener("click", ()=>{ updateBanner.hidden = true; });
+  checkForUpdate();
 
   // ---------- File opening ----------
   openBtn.addEventListener("click", ()=> fileInput.click());
