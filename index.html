@@ -381,7 +381,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.5";
+  const BUILD_VERSION = "2026-09-01.6";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -436,6 +436,15 @@
   let speedValue = loadSetting("speed", 7);
   let nightMode = loadSetting("night", false);
   let sleepDefaultMinutes = loadSetting("sleepMinutes", 30);
+  // One-time migration: a value of exactly 20 saved before this change was
+  // shipped is almost certainly just the old default lingering (nobody
+  // deliberately picks 20 vs 30) — bump it once, but never touch it again
+  // after that, so a real future choice of 20 sticks.
+  if(sleepDefaultMinutes === 20 && !loadSetting("sleepMinutesMigrated_v30", false)){
+    sleepDefaultMinutes = 30;
+    saveSetting("sleepMinutes", 30);
+  }
+  saveSetting("sleepMinutesMigrated_v30", true);
   const pageCache = new Map();      // pageNum -> pdf.js page proxy
   const wrapperOf = new Map();      // pageNum -> wrapper element
   let baseAspect = null;            // height/width ratio of page 1, used for placeholder sizing
@@ -1117,11 +1126,26 @@
   // doesn't auto-lock mid-read (especially during hands-free auto-scroll).
   // The sleep timer below is what eventually releases it again.
   let wakeLock = null;
+  let wakeLockWarned = false;
   async function acquireWakeLock(){
-    if(!("wakeLock" in navigator)) return;
-    releaseWakeLock();
-    try{ wakeLock = await navigator.wakeLock.request("screen"); }
-    catch(e){ /* denied, unsupported in this context, low-power mode, etc. */ }
+    if(!("wakeLock" in navigator)){
+      if(!wakeLockWarned){
+        wakeLockWarned = true;
+        showToast("المتصفح لا يدعم إبقاء الشاشة مضاءة تلقائيًا");
+      }
+      return;
+    }
+    if(wakeLock) return; // already held — nothing to do
+    try{
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", ()=>{ wakeLock = null; });
+    }catch(e){
+      // Some engines only grant this off the back of a real user gesture —
+      // the automatic request on book-open/restore has none, so it can be
+      // refused silently here and only succeed once the reader actually
+      // taps the screen (see the click listeners below that retry it).
+      console.warn("Wake Lock request failed:", e);
+    }
   }
   function releaseWakeLock(){
     if(wakeLock){
@@ -1142,6 +1166,11 @@
     sleepDimOverlay.hidden = true;
     if(pdfDoc) acquireWakeLock();
   });
+  // Retry on real taps too (book, toolbar, settings) — a user-gesture-backed
+  // request succeeds in cases where the initial gesture-less one on
+  // book-open/restore is silently refused.
+  viewer.addEventListener("pointerdown", ()=>{ if(pdfDoc) acquireWakeLock(); });
+  toolbar.addEventListener("pointerdown", ()=>{ if(pdfDoc) acquireWakeLock(); });
 
   // ---------- Sleep timer ----------
   function pad2(n){ return n<10 ? "0"+n : ""+n; }
