@@ -357,7 +357,7 @@
   // latest version rather than a stale cached copy (this matters a lot on
   // iOS: Home Screen "standalone" apps in particular don't reliably
   // re-fetch on launch the way a normal browser tab does).
-  const BUILD_VERSION = "2026-09-01.1";
+  const BUILD_VERSION = "2026-09-01.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -1075,20 +1075,23 @@
   // slider, typing in a field) also resets the auto-hide countdown.
   toolbar.addEventListener("pointerdown", showToolbarTemporarily);
 
-  // ---------- Tap-to-pause while auto-scrolling ----------
-  // A plain tap on the book (not a drag/swipe) instantly pauses auto-scroll
-  // — the fastest way to stop it without looking, e.g. mid-conversation.
+  // ---------- Tap to pause/resume auto-scroll ----------
+  // A plain tap on the book (not a drag/swipe) toggles auto-scroll — the
+  // fastest way to stop or resume it without looking, e.g. mid-conversation.
   // Using the native "click" event rather than hand-rolled pointer tracking:
   // every touch browser (iOS Safari included) already suppresses the click
   // when a touch turned into a scroll/drag and only fires it for a real
   // tap, which is exactly the tap-vs-drag distinction needed here — no
   // custom movement/duration thresholds to get wrong. Dragging to manually
   // scroll or jump around is left alone (see autoplayStep's drift-resync
-  // above), only a real tap pauses.
+  // above), only a real tap toggles play state.
   viewer.addEventListener("click", ()=>{
     if(autoplay){
       stopAutoplay();
       showToast("تم إيقاف التمرير التلقائي");
+    } else if(pdfDoc){
+      startAutoplay();
+      showToast("استُؤنف التمرير التلقائي");
     }
   });
   toolbar.addEventListener("input", showToolbarTemporarily);
