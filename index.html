@@ -140,9 +140,6 @@
     font-size:14px; background:var(--bg); color:var(--text);
   }
   .field .hint{ font-size:11px; color:var(--muted); margin-top:4px; }
-  .range-inputs{ display:flex; align-items:center; gap:8px; }
-  .range-inputs > div{ flex:1; }
-  .range-inputs span{ color:var(--muted); font-size:12px; }
   .btnrow{ display:flex; gap:8px; margin-top:8px; }
   .btnrow .tbtn{ flex:1; font-size:13px; }
   hr.sep{ border:none; border-top:1px solid var(--border); margin:14px 0; }
@@ -297,22 +294,6 @@
       <hr class="sep">
 
       <div class="field">
-        <label>نطاق الصفحات المعروضة (الافتراضي: الكتاب كاملًا)</label>
-        <div class="range-inputs">
-          <div><input type="number" id="rangeFrom" min="1" value="1"></div>
-          <span>إلى</span>
-          <div><input type="number" id="rangeTo" min="1" value="1"></div>
-        </div>
-        <div class="btnrow">
-          <button class="tbtn small" id="applyRangeBtn">تطبيق</button>
-          <button class="tbtn small" id="resetRangeBtn">الكل</button>
-        </div>
-        <div class="hint" id="totalPagesHint"></div>
-      </div>
-
-      <hr class="sep">
-
-      <div class="field">
         <div class="switch-row">
           <label style="margin:0;">الوضع الليلي</label>
           <div class="switch" id="nightSwitch"></div>
@@ -383,7 +364,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.3";
+  const BUILD_VERSION = "2026-09-01.4";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -411,11 +392,6 @@
   const speedHint = $("speedHint");
   const speedMinus = $("speedMinus");
   const speedPlus = $("speedPlus");
-  const rangeFrom = $("rangeFrom");
-  const rangeTo = $("rangeTo");
-  const applyRangeBtn = $("applyRangeBtn");
-  const resetRangeBtn = $("resetRangeBtn");
-  const totalPagesHint = $("totalPagesHint");
   const nightSwitch = $("nightSwitch");
   const sleepMinutesInput = $("sleepMinutes");
   const sleepStartBtn = $("sleepStartBtn");
@@ -525,7 +501,7 @@
     if(!pdfDoc) return;
     clearTimeout(metaSaveTimer);
     metaSaveTimer = setTimeout(()=>{
-      saveMeta({ range: { from: rangeStart, to: rangeEnd }, lastPage: currentPageNum });
+      saveMeta({ lastPage: currentPageNum });
     }, 800);
   }
 
@@ -627,30 +603,21 @@
       const vp1 = page1.getViewport({ scale: 1 });
       baseAspect = vp1.height / vp1.width;
 
-      let from = 1, to = numPages;
-      if(opts.range && opts.range.from && opts.range.to){
-        from = Math.max(1, Math.min(opts.range.from, numPages));
-        to = Math.max(1, Math.min(opts.range.to, numPages));
-        if(from > to){ const t=from; from=to; to=t; }
-      }
-      rangeStart = from; rangeEnd = to;
-      rangeFrom.min = 1; rangeFrom.max = numPages; rangeFrom.value = from;
-      rangeTo.min = 1; rangeTo.max = numPages; rangeTo.value = to;
-      totalPagesHint.textContent = "عدد صفحات الكتاب: " + numPages;
+      rangeStart = 1; rangeEnd = numPages;
 
       dropzone.classList.add("hide");
       viewer.classList.add("show");
 
-      buildPages(from, to);
+      buildPages(rangeStart, rangeEnd);
 
-      let goto = opts.gotoPage ? Math.max(from, Math.min(opts.gotoPage, to)) : from;
+      let goto = opts.gotoPage ? Math.max(rangeStart, Math.min(opts.gotoPage, rangeEnd)) : rangeStart;
       viewer.scrollTop = 0;
-      if(goto !== from) scrollToPage(goto);
+      if(goto !== rangeStart) scrollToPage(goto);
       updatePageIndicator(goto);
 
       if(opts.persist){
         saveBookData(name, buf.byteLength, buf);
-        saveMeta({ range: { from, to }, lastPage: goto });
+        saveMeta({ lastPage: goto });
       }
     }catch(err){
       console.error(err);
@@ -874,32 +841,6 @@
   zoomRange.addEventListener("input", ()=> setZoom(parseInt(zoomRange.value, 10)));
   zoomMinus.addEventListener("click", ()=> setZoom(zoomPercent - ZOOM_STEP));
   zoomPlus.addEventListener("click", ()=> setZoom(zoomPercent + ZOOM_STEP));
-
-  // ---------- Page range ----------
-  applyRangeBtn.addEventListener("click", ()=>{
-    if(!pdfDoc) return;
-    let from = parseInt(rangeFrom.value, 10) || 1;
-    let to = parseInt(rangeTo.value, 10) || numPages;
-    from = Math.max(1, Math.min(from, numPages));
-    to = Math.max(1, Math.min(to, numPages));
-    if(from > to){ const t=from; from=to; to=t; }
-    rangeFrom.value = from; rangeTo.value = to;
-    rangeStart = from; rangeEnd = to;
-    buildPages(from, to);
-    viewer.scrollTop = 0;
-    updatePageIndicator(from);
-    showToast("تم عرض الصفحات من " + from + " إلى " + to);
-  });
-
-  resetRangeBtn.addEventListener("click", ()=>{
-    if(!pdfDoc) return;
-    rangeFrom.value = 1; rangeTo.value = numPages;
-    rangeStart = 1; rangeEnd = numPages;
-    buildPages(1, numPages);
-    viewer.scrollTop = 0;
-    updatePageIndicator(1);
-    showToast("تم عرض الكتاب كاملًا");
-  });
 
   // ---------- Go to page (with confirmation) ----------
   pageIndicator.addEventListener("click", ()=>{
@@ -1214,7 +1155,6 @@
       showToast("جارٍ استعادة آخر كتاب…", 1500);
       await openFromBytes(rec.data, rec.name, {
         persist: false,
-        range: meta && meta.range,
         gotoPage: meta && meta.lastPage
       });
     }catch(e){
