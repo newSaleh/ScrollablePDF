@@ -271,7 +271,7 @@
         <label>سرعة التمرير التلقائي</label>
         <div class="row">
           <button class="stepbtn" id="speedMinus" type="button" title="أبطأ">−</button>
-          <input type="range" id="speedRange" min="1" max="100" step="1" value="25">
+          <input type="range" id="speedRange" min="1" max="10" step="1" value="4">
           <button class="stepbtn" id="speedPlus" type="button" title="أسرع">＋</button>
         </div>
         <div class="hint" id="speedHint">السرعة: 25</div>
@@ -399,7 +399,7 @@
   let rangeStart = 1, rangeEnd = 1;
   let currentPageNum = 1;
   let zoomPercent = loadSetting("zoom", 100);
-  let speedValue = loadSetting("speed", 25);
+  let speedValue = loadSetting("speed", 4);
   let nightMode = loadSetting("night", false);
   let sleepDefaultMinutes = loadSetting("sleepMinutes", 20);
   const pageCache = new Map();      // pageNum -> pdf.js page proxy
@@ -500,7 +500,7 @@
 
   // ---------- Init UI from settings ----------
   const ZOOM_MIN = 1, ZOOM_MAX = 130, ZOOM_STEP = 1;
-  const SPEED_MIN = 1, SPEED_MAX = 100, SPEED_STEP = 1;
+  const SPEED_MIN = 1, SPEED_MAX = 10, SPEED_STEP = 1;
   zoomPercent = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoomPercent));
   speedValue = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speedValue));
   zoomRange.value = zoomPercent; updateZoomHint();
@@ -898,16 +898,25 @@
   speedPlus.addEventListener("click", ()=> setSpeed(speedValue + SPEED_STEP));
 
   function speedPxPerSec(){
-    // wide, fine-grained range: ~8px/s up to ~900px/s
-    return 8 + (speedValue/100) * 892;
+    // Every level here should be a speed someone could plausibly still read
+    // at — 1 is a slow, careful pace; 10 is a fast skim. Nothing near the
+    // old ~900px/s "blur" a slider full of unreadable speeds was mostly
+    // wasted on.
+    const MIN_PX = 6, MAX_PX = 110;
+    return MIN_PX + (speedValue - 1) / (SPEED_MAX - 1) * (MAX_PX - MIN_PX);
   }
 
+  let scrollAccumulator = null; // sub-pixel-precise scrollTop, since the
+  // DOM's scrollTop rounds to whole pixels — accumulating on top of that
+  // rounded value silently loses slow speeds (their per-frame delta is
+  // under 1px and keeps getting truncated back to the same integer).
   function autoplayStep(ts){
     if(!autoplay) return;
-    if(lastTs == null) lastTs = ts;
+    if(lastTs == null){ lastTs = ts; scrollAccumulator = viewer.scrollTop; }
     const dt = (ts - lastTs) / 1000;
     lastTs = ts;
-    viewer.scrollTop += speedPxPerSec() * dt;
+    scrollAccumulator += speedPxPerSec() * dt;
+    viewer.scrollTop = scrollAccumulator;
     if(viewer.scrollTop + viewer.clientHeight >= viewer.scrollHeight - 2){
       stopAutoplay();
       showToast("وصلت إلى نهاية النطاق المحدد");
