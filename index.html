@@ -77,6 +77,20 @@
     opacity:0;
     pointer-events:none;
   }
+  /* Desktop: once idle in fullscreen, hide the mouse cursor and the
+     book's native scrollbar along with the toolbar, for a fully
+     distraction-free view — not just a missing top bar. */
+  body.fullscreen-mode.cursor-hidden,
+  body.fullscreen-mode.cursor-hidden *{
+    cursor:none !important;
+  }
+  #viewer.hide-scrollbar{
+    scrollbar-width:none;       /* Firefox */
+    -ms-overflow-style:none;    /* legacy Edge */
+  }
+  #viewer.hide-scrollbar::-webkit-scrollbar{
+    width:0; height:0;
+  }
   .brand{
     font-weight:700; font-size:15px; color:var(--accent);
     white-space:nowrap; display:none;
@@ -394,7 +408,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.7";
+  const BUILD_VERSION = "2026-09-01.8";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -1057,7 +1071,8 @@
   }
   function exitPseudoFullscreen(){
     pseudoFullscreen = false;
-    document.body.classList.remove("fullscreen-mode");
+    document.body.classList.remove("fullscreen-mode", "cursor-hidden");
+    viewer.classList.remove("hide-scrollbar");
     fsBtn.classList.remove("active");
     toolbar.classList.remove("hidden");
     clearTimeout(hideTimer);
@@ -1076,7 +1091,8 @@
       fsBtn.classList.add("active");
       hideToolbarNow();
     } else if(!pseudoFullscreen){
-      document.body.classList.remove("fullscreen-mode");
+      document.body.classList.remove("fullscreen-mode", "cursor-hidden");
+      viewer.classList.remove("hide-scrollbar");
       fsBtn.classList.remove("active");
       toolbar.classList.remove("hidden");
       clearTimeout(hideTimer);
@@ -1089,9 +1105,13 @@
     clearTimeout(hideTimer);
     toolbar.classList.add("hidden");
     settingsPanel.classList.remove("open");
+    document.body.classList.add("cursor-hidden");
+    viewer.classList.add("hide-scrollbar");
   }
   function armToolbarHide(){
     toolbar.classList.remove("hidden");
+    document.body.classList.remove("cursor-hidden");
+    viewer.classList.remove("hide-scrollbar");
     clearTimeout(hideTimer);
     // Never auto-hide while the settings panel is open — the panel is
     // anchored to the toolbar, so hiding it mid-adjustment (e.g. while
@@ -1100,6 +1120,12 @@
     hideTimer = setTimeout(()=>{
       if(document.body.classList.contains("fullscreen-mode") && !settingsPanel.classList.contains("open")){
         toolbar.classList.add("hidden");
+        // On desktop, also hide the mouse cursor and the book's scrollbar
+        // once idle — mirrors the toolbar so fullscreen reading is fully
+        // distraction-free, not just missing the top bar. Any mouse
+        // movement (showToolbarTemporarily below) brings all three back.
+        document.body.classList.add("cursor-hidden");
+        viewer.classList.add("hide-scrollbar");
       }
     }, 3000);
   }
@@ -1109,6 +1135,10 @@
   }
   viewer.addEventListener("pointerdown", showToolbarTemporarily);
   viewer.addEventListener("touchstart", showToolbarTemporarily, { passive:true });
+  // Mouse movement (no click) also needs to bring the cursor/toolbar back
+  // on desktop — a click/tap alone would leave the cursor hidden while the
+  // reader just moves the mouse without pressing anything.
+  document.addEventListener("mousemove", showToolbarTemporarily);
   // Any interaction with the toolbar itself (tapping a button, dragging a
   // slider, typing in a field) also resets the auto-hide countdown.
   toolbar.addEventListener("pointerdown", showToolbarTemporarily);
