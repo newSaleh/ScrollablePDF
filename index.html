@@ -339,7 +339,7 @@
       <div class="field">
         <label>مؤقت النوم (توقف تلقائي بعد X دقيقة)</label>
         <div class="row">
-          <input type="number" id="sleepMinutes" min="1" max="240" value="30">
+          <input type="text" id="sleepMinutes" inputmode="numeric" pattern="[0-9٠-٩]*" value="30">
           <button class="tbtn small" id="sleepStartBtn">ابدأ</button>
           <button class="tbtn small" id="sleepCancelBtn">إلغاء</button>
         </div>
@@ -385,7 +385,7 @@
   <div id="gotoOverlay" class="modal-overlay">
     <div class="modal-card">
       <h3>الانتقال إلى صفحة</h3>
-      <input type="number" id="gotoInput" min="1" value="1" inputmode="numeric">
+      <input type="text" id="gotoInput" inputmode="numeric" pattern="[0-9٠-٩]*" value="1">
       <div class="modal-hint" id="gotoHint"></div>
       <div class="btnrow">
         <button class="tbtn" id="gotoCancelBtn" type="button">إلغاء</button>
@@ -408,9 +408,19 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.8";
+  const BUILD_VERSION = "2026-09-01.9";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+  // Converts Eastern Arabic-Indic (٠-٩) and Persian (۰-۹) digits to plain
+  // 0-9 so parseInt() can read them — an Arabic keyboard's number pad can
+  // insert these instead of Western digits, which parseInt doesn't
+  // understand on its own (it just reads "" and gives NaN).
+  function toWesternDigits(str){
+    return String(str)
+      .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06F0));
+  }
 
   // ---------- Elements ----------
   const $ = (id)=>document.getElementById(id);
@@ -912,7 +922,7 @@
   gotoCancelBtn.addEventListener("click", closeGotoModal);
   gotoOverlay.addEventListener("click", (e)=>{ if(e.target === gotoOverlay) closeGotoModal(); });
   gotoConfirmBtn.addEventListener("click", ()=>{
-    let n = parseInt(gotoInput.value, 10);
+    let n = parseInt(toWesternDigits(gotoInput.value), 10);
     closeGotoModal();
     if(!pdfDoc || !n || isNaN(n)) return;
     n = Math.max(rangeStart, Math.min(n, rangeEnd));
@@ -1253,7 +1263,7 @@
     updateCountdownDisplay();
   }
   sleepStartBtn.addEventListener("click", ()=>{
-    let m = parseInt(sleepMinutesInput.value, 10);
+    let m = parseInt(toWesternDigits(sleepMinutesInput.value), 10);
     if(!m || m < 1) m = 30;
     sleepMinutesInput.value = m;
     saveSetting("sleepMinutes", m);
@@ -1264,7 +1274,7 @@
     showToast("تم إلغاء مؤقت النوم");
   });
   sleepMinutesInput.addEventListener("change", ()=>{
-    let m = parseInt(sleepMinutesInput.value, 10);
+    let m = parseInt(toWesternDigits(sleepMinutesInput.value), 10);
     if(m && m>=1) saveSetting("sleepMinutes", m);
   });
 
