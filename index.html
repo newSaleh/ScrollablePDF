@@ -210,13 +210,18 @@
     display:none;
   }
   #viewer.show{ display:block; }
-  #viewer.night{ background:#101010; }
+  #viewer.night{ background:#000; }
   #pages{ display:flex; flex-direction:column; align-items:center; gap:8px; }
   .pwrap{
     position:relative; background:#fff; box-shadow:0 1px 8px rgba(0,0,0,.15);
     flex:0 0 auto;
   }
-  #viewer.night .pwrap{ background:#161616; box-shadow:0 1px 8px rgba(0,0,0,.5); }
+  /* The PDF canvas is transparent wherever the page has no ink (pdf.js
+     never paints an opaque background), so it's this wrapper color —
+     not the invert filter — that shows through as the "page background"
+     in night mode. Keep it a hair above #000 so the box-shadow between
+     stacked pages stays visible as a seam while scrolling. */
+  #viewer.night .pwrap{ background:#050505; box-shadow:0 1px 8px rgba(0,0,0,.6); }
   .pwrap canvas{ display:block; width:100%; height:100%; }
   #viewer.night .pwrap canvas{ filter:invert(1) hue-rotate(180deg) brightness(.92); }
   .pnum{
@@ -408,7 +413,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.9";
+  const BUILD_VERSION = "2026-09-01.10";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
