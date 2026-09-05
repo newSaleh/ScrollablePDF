@@ -271,6 +271,20 @@
   }
   .sleep-dim-hint{ font-size:11px; color:#2a2a2a; }
 
+  /* ---------- Extra dim / eye-comfort filter ---------- */
+  /* A warm, dark, semi-transparent layer over the whole app — darkens the
+     screen well past the display's own minimum brightness and shifts
+     everything warmer (less blue light), for reading in a dark room or
+     for migraine/light sensitivity. Sits above the toolbar so it tints
+     the UI too, but never blocks touches/clicks, and stays below toasts,
+     the update banner, and modals so those stay fully legible. */
+  #extraDimOverlay{
+    position:fixed; inset:0; z-index:40;
+    background:rgba(25,12,0,0.55);
+    pointer-events:none;
+  }
+  #extraDimOverlay[hidden]{ display:none; }
+
   /* ---------- Go-to-page modal ---------- */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(20,17,10,.55);
@@ -339,6 +353,14 @@
         </div>
       </div>
 
+      <div class="field">
+        <div class="switch-row">
+          <label style="margin:0;">🕯️ تخفيف إضافي للإضاءة</label>
+          <div class="switch" id="dimSwitch"></div>
+        </div>
+        <div class="hint">تعتيم إضافي مع تدفئة اللون (تقليل الضوء الأزرق) — مفيد في الغرف المظلمة أو لمن يتحسس من الإضاءة</div>
+      </div>
+
       <hr class="sep">
 
       <div class="field">
@@ -387,6 +409,8 @@
     <div class="sleep-dim-msg">🌙 تصبح على خير<br><span class="sleep-dim-hint">المس للعودة</span></div>
   </div>
 
+  <div id="extraDimOverlay" hidden></div>
+
   <div id="gotoOverlay" class="modal-overlay">
     <div class="modal-card">
       <h3>الانتقال إلى صفحة</h3>
@@ -413,7 +437,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.10";
+  const BUILD_VERSION = "2026-09-01.11";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -452,6 +476,8 @@
   const speedMinus = $("speedMinus");
   const speedPlus = $("speedPlus");
   const nightSwitch = $("nightSwitch");
+  const dimSwitch = $("dimSwitch");
+  const extraDimOverlay = $("extraDimOverlay");
   const sleepMinutesInput = $("sleepMinutes");
   const sleepStartBtn = $("sleepStartBtn");
   const sleepCancelBtn = $("sleepCancelBtn");
@@ -477,6 +503,7 @@
   let zoomPercent = loadSetting("zoom", 100);
   let speedValue = loadSetting("speed", 7);
   let nightMode = loadSetting("night", false);
+  let extraDim = loadSetting("extraDim", false);
   let sleepDefaultMinutes = loadSetting("sleepMinutes", 30);
   // One-time migration: a value of exactly 20 saved before this change was
   // shipped is almost certainly just the old default lingering (nobody
@@ -592,6 +619,7 @@
   speedRange.value = speedValue; updateSpeedHint();
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
+  if(extraDim){ dimSwitch.classList.add("on"); extraDimOverlay.hidden = false; }
   buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
 
   // ---------- Update check ----------
@@ -944,6 +972,14 @@
     nightSwitch.classList.toggle("on", nightMode);
     viewer.classList.toggle("night", nightMode);
     saveSetting("night", nightMode);
+  });
+
+  // ---------- Extra dim / eye-comfort filter ----------
+  dimSwitch.addEventListener("click", ()=>{
+    extraDim = !extraDim;
+    dimSwitch.classList.toggle("on", extraDim);
+    extraDimOverlay.hidden = !extraDim;
+    saveSetting("extraDim", extraDim);
   });
 
   // ---------- Settings panel toggle ----------
