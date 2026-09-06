@@ -162,9 +162,11 @@
     display:flex; align-items:center; justify-content:center; gap:8px;
     padding:11px; border:1px solid var(--border); border-radius:10px;
     background:var(--bg); color:var(--text); text-decoration:none;
-    font-size:14px; touch-action:manipulation;
+    font-size:14px; touch-action:manipulation; width:100%;
+    appearance:none; font-family:inherit; cursor:pointer;
   }
   .link-btn:active{ background:var(--border); }
+  .link-btn:disabled{ opacity:.6; cursor:default; }
   .switch{
     position:relative; width:44px; height:26px; border-radius:20px; background:var(--border);
     cursor:pointer; flex:0 0 auto; transition:background .2s;
@@ -389,6 +391,13 @@
       <hr class="sep">
 
       <div class="field">
+        <button class="link-btn" id="exportBtn" type="button">📤 تصدير الكتاب بنفس المؤثرات الحالية</button>
+        <div class="hint" id="exportHint" style="text-align:center;">ملف PDF جديد بألوان الوضع الحالي (الليلي و/أو التخفيف الإضافي)؛ يصبح صورًا فقط، بلا نص قابل للتحديد</div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
         <a class="link-btn" href="https://newsaleh.github.io/Writing/">✍️ الانتقال إلى صفحة الكتابة</a>
       </div>
 
@@ -450,7 +459,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-01.13";
+  const BUILD_VERSION = "2026-09-06.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -490,6 +499,8 @@
   const speedPlus = $("speedPlus");
   const nightSwitch = $("nightSwitch");
   const dimSwitch = $("dimSwitch");
+  const exportBtn = $("exportBtn");
+  const exportHint = $("exportHint");
   const extraDimOverlay = $("extraDimOverlay");
   const sleepMinutesInput = $("sleepMinutes");
   const sleepStartBtn = $("sleepStartBtn");
@@ -517,6 +528,7 @@
   let speedValue = loadSetting("speed", 7);
   let nightMode = loadSetting("night", false);
   let extraDim = loadSetting("extraDim", false);
+  let currentBookName = "";
   let sleepDefaultMinutes = loadSetting("sleepMinutes", 30);
   // One-time migration: a value of exactly 20 saved before this change was
   // shipped is almost certainly just the old default lingering (nobody
@@ -703,6 +715,7 @@
     opts = opts || {};
     try{
       resetAll();
+      currentBookName = (name || "book").replace(/\.pdf$/i, "");
       // pdf.js may transfer/detach the ArrayBuffer it's given, so hand it a
       // copy and keep the original `buf` intact for persisting below.
       const loadingTask = pdfjsLib.getDocument({ data: buf.slice(0) });
@@ -993,6 +1006,100 @@
     dimSwitch.classList.toggle("on", extraDim);
     extraDimOverlay.hidden = !extraDim;
     saveSetting("extraDim", extraDim);
+  });
+
+  // ---------- Export the book with the current visual effects ----------
+  // Loaded on demand (only when actually exporting) rather than on every
+  // page load, since most visits never use it.
+  let jsPDFLoadPromise = null;
+  function loadJsPDF(){
+    if(window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+    if(jsPDFLoadPromise) return jsPDFLoadPromise;
+    jsPDFLoadPromise = new Promise((resolve, reject)=>{
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js";
+      s.onload = resolve;
+      s.onerror = ()=> reject(new Error("failed to load jsPDF"));
+      document.head.appendChild(s);
+    });
+    return jsPDFLoadPromise;
+  }
+
+  const EXPORT_WIDTH = 1400;      // px — enough for crisp text without huge files
+  const EXPORT_JPEG_QUALITY = 0.85;
+  const NIGHT_FILTER = "invert(0.88) hue-rotate(180deg) sepia(0.3) brightness(0.97) contrast(0.95)";
+  const NIGHT_BG = "#262422";
+  const DIM_OVERLAY_COLOR = "rgba(45,8,18,0.55)";
+
+  exportBtn.addEventListener("click", async ()=>{
+    if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    exportBtn.disabled = true;
+    const originalLabel = exportBtn.textContent;
+    const raw = document.createElement("canvas");
+    const rctx = raw.getContext("2d");
+    const off = document.createElement("canvas");
+    const octx = off.getContext("2d");
+    try{
+      await loadJsPDF();
+      const { jsPDF } = window.jspdf;
+      let doc = null;
+
+      for(let n = 1; n <= numPages; n++){
+        exportBtn.textContent = `⏳ جارٍ التصدير... ${n} / ${numPages}`;
+        const page = await getPageCached(n);
+        const natural = page.getViewport({ scale: 1 });
+        const scale = EXPORT_WIDTH / natural.width;
+        const viewport = page.getViewport({ scale });
+        const w = Math.round(viewport.width), h = Math.round(viewport.height);
+        raw.width = w; raw.height = h;
+        off.width = w; off.height = h;
+
+        // Render unfiltered first — applying ctx.filter live during
+        // page.render() doesn't reliably affect every internal fill/stroke
+        // pdf.js issues for real glyph paths. Instead we filter the whole
+        // rasterized page in one drawImage, same as a CSS filter post-
+        // processing the finished canvas element on screen.
+        rctx.clearRect(0, 0, w, h);
+        await page.render({ canvasContext: rctx, viewport }).promise;
+
+        // Fill first (no filter) so blank/inkless paper areas end up the
+        // right color — pdf.js leaves those transparent, and a transparent
+        // pixel exported as JPEG would otherwise default to white.
+        octx.filter = "none";
+        octx.fillStyle = nightMode ? NIGHT_BG : "#ffffff";
+        octx.fillRect(0, 0, w, h);
+        octx.filter = nightMode ? NIGHT_FILTER : "none";
+        octx.drawImage(raw, 0, 0);
+        octx.filter = "none";
+        if(extraDim){
+          octx.fillStyle = DIM_OVERLAY_COLOR;
+          octx.fillRect(0, 0, w, h);
+        }
+
+        const imgData = off.toDataURL("image/jpeg", EXPORT_JPEG_QUALITY);
+        if(!doc){
+          doc = new jsPDF({ unit: "px", format: [w, h], compress: true });
+        } else {
+          doc.addPage([w, h]);
+        }
+        doc.addImage(imgData, "JPEG", 0, 0, w, h);
+
+        // Let the progress text above actually repaint between pages.
+        if(n % 3 === 0) await new Promise(r => setTimeout(r, 0));
+      }
+
+      const suffix = nightMode && extraDim ? " (ليلي مع تخفيف)" : nightMode ? " (ليلي)" : "";
+      doc.save(`${currentBookName || "book"}${suffix}.pdf`);
+      showToast("تم تجهيز الملف للتنزيل");
+    }catch(err){
+      console.error("export failed", err);
+      showToast("تعذر تصدير الكتاب");
+    }finally{
+      raw.width = 0; raw.height = 0;
+      off.width = 0; off.height = 0; // release the offscreen canvas memory
+      exportBtn.disabled = false;
+      exportBtn.textContent = originalLabel;
+    }
   });
 
   // ---------- Settings panel toggle ----------
