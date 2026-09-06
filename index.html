@@ -459,7 +459,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-06.1";
+  const BUILD_VERSION = "2026-09-06.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
@@ -1011,25 +1011,52 @@
   // ---------- Export the book with the current visual effects ----------
   // Loaded on demand (only when actually exporting) rather than on every
   // page load, since most visits never use it.
-  let jsPDFLoadPromise = null;
-  function loadJsPDF(){
-    if(window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
-    if(jsPDFLoadPromise) return jsPDFLoadPromise;
-    jsPDFLoadPromise = new Promise((resolve, reject)=>{
+  function loadScript(src){
+    return new Promise((resolve, reject)=>{
       const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js";
+      s.src = src;
       s.onload = resolve;
-      s.onerror = ()=> reject(new Error("failed to load jsPDF"));
+      s.onerror = ()=> reject(new Error("failed to load " + src));
       document.head.appendChild(s);
     });
-    return jsPDFLoadPromise;
+  }
+  let exportLibsPromise = null;
+  async function loadExportLibsImpl(){
+    const jsPDFReady = (window.jspdf && window.jspdf.jsPDF)
+      ? Promise.resolve()
+      : loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/4.2.1/jspdf.umd.min.js");
+    // UPNG.js reads window.pako once, when its own script executes — pako
+    // must finish loading (and running) first, so these two cannot be
+    // fetched as unordered parallel <script> tags like jsPDF above.
+    if(!window.pako) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js");
+    if(!window.UPNG) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/upng-js/2.1.0/UPNG.min.js");
+    await jsPDFReady;
+  }
+  function loadExportLibs(){
+    if(!exportLibsPromise) exportLibsPromise = loadExportLibsImpl();
+    return exportLibsPromise;
   }
 
+  // Most book pages are mostly flat color (paper + ink), which a quantized/
+  // paletted PNG compresses far smaller than JPEG for — but photos/scanned
+  // images compress the other way around. Encoding both and keeping
+  // whichever comes out smaller gets the best of both automatically,
+  // without needing to detect page content up front.
   const EXPORT_WIDTH = 1400;      // px — enough for crisp text without huge files
   const EXPORT_JPEG_QUALITY = 0.85;
+  const EXPORT_PNG_COLORS = 16;   // quantized palette size — plenty for smooth text edges
   const NIGHT_FILTER = "invert(0.88) hue-rotate(180deg) sepia(0.3) brightness(0.97) contrast(0.95)";
   const NIGHT_BG = "#262422";
   const DIM_OVERLAY_COLOR = "rgba(45,8,18,0.55)";
+
+  function bytesToBase64(bytes){
+    let binary = "";
+    const chunkSize = 0x8000;
+    for(let i = 0; i < bytes.length; i += chunkSize){
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  }
 
   exportBtn.addEventListener("click", async ()=>{
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
@@ -1040,7 +1067,7 @@
     const off = document.createElement("canvas");
     const octx = off.getContext("2d");
     try{
-      await loadJsPDF();
+      await loadExportLibs();
       const { jsPDF } = window.jspdf;
       let doc = null;
 
@@ -1076,13 +1103,24 @@
           octx.fillRect(0, 0, w, h);
         }
 
-        const imgData = off.toDataURL("image/jpeg", EXPORT_JPEG_QUALITY);
+        // Try both encodings and keep whichever is actually smaller for
+        // this specific page, rather than assuming one format up front.
+        const jpegData = off.toDataURL("image/jpeg", EXPORT_JPEG_QUALITY);
+        const jpegBytes = Math.round(jpegData.length * 0.75);
+        const rgba = octx.getImageData(0, 0, w, h).data;
+        const pngBuf = UPNG.encode([rgba.buffer], w, h, EXPORT_PNG_COLORS);
+
         if(!doc){
           doc = new jsPDF({ unit: "px", format: [w, h], compress: true });
         } else {
           doc.addPage([w, h]);
         }
-        doc.addImage(imgData, "JPEG", 0, 0, w, h);
+        if(pngBuf.byteLength < jpegBytes){
+          const pngData = "data:image/png;base64," + bytesToBase64(new Uint8Array(pngBuf));
+          doc.addImage(pngData, "PNG", 0, 0, w, h);
+        } else {
+          doc.addImage(jpegData, "JPEG", 0, 0, w, h);
+        }
 
         // Let the progress text above actually repaint between pages.
         if(n % 3 === 0) await new Promise(r => setTimeout(r, 0));
