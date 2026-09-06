@@ -212,7 +212,10 @@
     display:none;
   }
   #viewer.show{ display:block; }
-  #viewer.night{ background:#000; }
+  /* Not pure black: on an LCD (no per-pixel dimming, unlike OLED) a stark
+     black gutter next to the page's warm dark-gray creates a harsh
+     contrast edge that reads as more glare in a dark room, not less. */
+  #viewer.night{ background:#161412; }
   #pages{ display:flex; flex-direction:column; align-items:center; gap:8px; }
   .pwrap{
     position:relative; background:#fff; box-shadow:0 1px 8px rgba(0,0,0,.15);
@@ -459,7 +462,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-06.3";
+  const BUILD_VERSION = "2026-09-06.4";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
