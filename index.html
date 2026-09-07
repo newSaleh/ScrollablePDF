@@ -458,7 +458,10 @@
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Self-hosted (not CDN): this is the one library the app cannot work
+     without, so it must be available offline from the very first load
+     that installed the service worker below. -->
+<script src="vendor/pdf.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -471,9 +474,9 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-09-06.5";
+  const BUILD_VERSION = "2026-09-07.1";
 
-  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
   // Converts Eastern Arabic-Indic (٠-٩) and Persian (۰-۹) digits to plain
   // 0-9 so parseInt() can read them — an Arabic keyboard's number pad can
@@ -684,6 +687,14 @@
   });
   updateDismissBtn.addEventListener("click", ()=>{ updateBanner.hidden = true; });
   checkForUpdate();
+
+  // Precaches the page itself, pdf.js, and the icons so the app (open the
+  // site, upload a book, read it — everything except the export feature's
+  // CDN libraries) keeps working with no network at all after the first
+  // successful visit.
+  if("serviceWorker" in navigator){
+    navigator.serviceWorker.register("sw.js").catch(()=>{});
+  }
 
   // ---------- File opening ----------
   openBtn.addEventListener("click", ()=> fileInput.click());
