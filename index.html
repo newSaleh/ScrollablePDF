@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<title>ScrollablePDF — قارئ كتب PDF</title>
+<title>القارئ المريح — قارئ كتب PDF</title>
 <meta name="description" content="قارئ PDF عمودي خفيف، يعرض الصفحات عند الحاجة فقط، مع تمرير تلقائي وملء الشاشة ومؤقت نوم.">
 <meta name="theme-color" content="#f2f1ec">
 <link rel="manifest" href="manifest.json">
@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="ScrollablePDF">
+<meta name="apple-mobile-web-app-title" content="القارئ المريح">
 <style>
   :root{
     --bg:#f2f1ec;
@@ -347,7 +347,7 @@
     <button type="button" id="pageIndicator" title="الانتقال إلى صفحة">—</button>
     <span id="etaBadge" class="eta-badge" hidden></span>
     <div class="spacer"></div>
-    <span class="brand">ScrollablePDF</span>
+    <span class="brand">القارئ المريح</span>
     <div class="spacer"></div>
     <button class="tbtn" id="playBtn" title="تمرير تلقائي">▶️</button>
     <button class="tbtn" id="fsBtn" title="ملء الشاشة">⛶</button>
@@ -416,7 +416,7 @@
 
   <div id="dropzone" class="hide">
     <div class="dz-box" id="dzBox">
-      <h2>📖 ScrollablePDF</h2>
+      <h2>📖 القارئ المريح</h2>
       <p>اختر كتاب PDF لبدء القراءة بتمرير عمودي فقط. الصفحات تُحمَّل عند الحاجة فقط أثناء التمرير، وليس دفعة واحدة. سيبقى الكتاب محفوظًا في هذا الجهاز ليفتح تلقائيًا في المرة القادمة.</p>
       <button id="openBtnBig">اختر ملف PDF</button>
     </div>
@@ -490,7 +490,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-22.1";
+  const BUILD_VERSION = "2026-10-22.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 

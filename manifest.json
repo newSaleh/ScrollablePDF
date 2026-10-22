@@ -1,6 +1,6 @@
 {
-  "name": "ScrollablePDF",
-  "short_name": "ScrollablePDF",
+  "name": "القارئ المريح",
+  "short_name": "القارئ المريح",
   "description": "قارئ كتب PDF بتمرير عمودي فقط.",
   "start_url": "./index.html",
   "scope": "./",
