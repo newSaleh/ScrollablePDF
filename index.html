@@ -490,7 +490,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-22.2";
+  const BUILD_VERSION = "2026-10-22.3";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -1015,10 +1015,20 @@
       canvas.style.width = (viewport.width/dpr) + "px";
       canvas.style.height = (viewport.height/dpr) + "px";
 
-      const ctx = canvas.getContext("2d");
-      const task = page.render({ canvasContext: ctx, viewport });
+      // Rendering straight into a canvas already attached to the page can
+      // garble dense text (seen specifically on paragraph-heavy pages) —
+      // Chromium appears to take a different, buggy text-rendering path
+      // for a "live" on-screen canvas versus a detached one. Rendering
+      // off-screen first and copying the finished bitmap over sidesteps
+      // it entirely, the same fix already used for the export feature.
+      const off = document.createElement("canvas");
+      off.width = canvas.width;
+      off.height = canvas.height;
+      const task = page.render({ canvasContext: off.getContext("2d"), viewport });
       wrap._renderTask = task;
       await task.promise;
+      canvas.getContext("2d").drawImage(off, 0, 0);
+      off.width = 0; off.height = 0;
       wrap.dataset.rendered = "1";
       wrap.classList.remove("loading");
     }catch(err){
