@@ -292,26 +292,6 @@
   }
   .sleep-dim-hint{ font-size:11px; color:#2a2a2a; }
 
-  /* ---------- Extra dim / eye-comfort filter ---------- */
-  /* A dark, rose-amber, semi-transparent layer over the whole app —
-     darkens the screen well past the display's own minimum brightness,
-     for reading in a dark room or for migraine/light sensitivity. The
-     rose tint (rather than a neutral or brown one) follows the same
-     principle as FL-41 tinted lenses used clinically for migraine and
-     photophobia: research (Burstein et al., Harvard) found blue/green
-     wavelengths are the strongest migraine/photophobia trigger, while
-     red/amber/rose light is by far the best tolerated — this overlay
-     has essentially no blue or green in it for the same reason. Sits
-     above the toolbar so it tints the UI too, but never blocks
-     touches/clicks, and stays below toasts, the update banner, and
-     modals so those stay fully legible. */
-  #extraDimOverlay{
-    position:fixed; inset:0; z-index:40;
-    background:rgba(45,8,18,0.55);
-    pointer-events:none;
-  }
-  #extraDimOverlay[hidden]{ display:none; }
-
   /* ---------- Go-to-page modal ---------- */
   .modal-overlay{
     position:fixed; inset:0; background:rgba(20,17,10,.55);
@@ -332,6 +312,29 @@
   .modal-hint{ font-size:12px; color:var(--muted); margin-top:8px; text-align:center; }
   .modal-card .btnrow{ margin-top:16px; }
   .modal-card .btnrow .tbtn{ font-size:14px; padding:11px; }
+
+  /* ---------- Saved-books library modal ---------- */
+  .modal-card.library-card{ width:min(380px, 100%); max-height:80vh; display:flex; flex-direction:column; }
+  .library-list{ overflow-y:auto; max-height:50vh; display:flex; flex-direction:column; gap:8px; }
+  .library-item{
+    display:flex; align-items:center; gap:8px;
+    border:1px solid var(--border); border-radius:10px; padding:10px;
+  }
+  .library-item.current{ border-color:var(--accent); background:var(--bg); }
+  .library-item-btn{
+    flex:1 1 auto; min-width:0; text-align:start; background:none; border:none;
+    padding:0; cursor:pointer; color:inherit; font-family:inherit; touch-action:manipulation;
+  }
+  .library-item-name{
+    font-size:14px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .library-item-meta{ font-size:11.5px; color:var(--muted); margin-top:2px; }
+  .library-delete-btn{
+    flex:0 0 auto; appearance:none; border:1px solid var(--border); background:var(--bg);
+    border-radius:9px; font-size:16px; width:36px; height:36px; cursor:pointer;
+    touch-action:manipulation; display:inline-flex; align-items:center; justify-content:center;
+  }
+  .library-delete-btn:active{ background:var(--border); }
 
   input[type=file]{ display:none; }
 </style>
@@ -380,14 +383,6 @@
         </div>
       </div>
 
-      <div class="field">
-        <div class="switch-row">
-          <label style="margin:0;">👓 تخفيف إضافي للإضاءة</label>
-          <div class="switch" id="dimSwitch"></div>
-        </div>
-        <div class="hint">تعتيم إضافي بصبغة وردية-كهرمانية (بلا أزرق أو أخضر تقريبًا)، بنفس مبدأ نظارات FL-41 الطبية لمرضى الصداع النصفي وحساسية الضوء</div>
-      </div>
-
       <hr class="sep">
 
       <div class="field">
@@ -404,13 +399,14 @@
 
       <div class="field">
         <button class="link-btn" id="exportBtn" type="button">📤 تصدير الكتاب بنفس المؤثرات الحالية</button>
-        <div class="hint" id="exportHint" style="text-align:center;">ملف PDF جديد بألوان الوضع الحالي (الليلي و/أو التخفيف الإضافي)؛ يصبح صورًا فقط، بلا نص قابل للتحديد</div>
+        <div class="hint" id="exportHint" style="text-align:center;">ملف PDF جديد بألوان الوضع الحالي (الليلي)؛ يصبح صورًا فقط، بلا نص قابل للتحديد</div>
       </div>
 
       <hr class="sep">
 
       <div class="field">
-        <a class="link-btn" href="https://newsaleh.github.io/Writing/">✍️ الانتقال إلى صفحة الكتابة</a>
+        <button class="link-btn" id="libraryBtn" type="button">📚 الكتب المحفوظة</button>
+        <div class="hint" style="text-align:center;">كل الكتب التي رفعتها محفوظة على هذا الجهاز؛ افتح أو احذف أي منها</div>
       </div>
 
       <hr class="sep">
@@ -443,7 +439,27 @@
     <div class="sleep-dim-msg">🌙 تصبح على خير<br><span class="sleep-dim-hint">المس للعودة</span></div>
   </div>
 
-  <div id="extraDimOverlay" hidden></div>
+  <div id="libraryOverlay" class="modal-overlay">
+    <div class="modal-card library-card">
+      <h3>📚 الكتب المحفوظة</h3>
+      <div class="library-list" id="libraryList"></div>
+      <div class="modal-hint" id="libraryEmptyHint" hidden>لا توجد كتب محفوظة بعد</div>
+      <div class="btnrow">
+        <button class="tbtn" id="libraryCloseBtn" type="button">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="deleteOverlay" class="modal-overlay">
+    <div class="modal-card">
+      <h3>حذف الكتاب؟</h3>
+      <div class="modal-hint" id="deleteHint"></div>
+      <div class="btnrow">
+        <button class="tbtn" id="deleteCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="deleteConfirmBtn" type="button">حذف</button>
+      </div>
+    </div>
+  </div>
 
   <div id="gotoOverlay" class="modal-overlay">
     <div class="modal-card">
@@ -474,7 +490,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-20.1";
+  const BUILD_VERSION = "2026-10-22.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -513,10 +529,8 @@
   const speedMinus = $("speedMinus");
   const speedPlus = $("speedPlus");
   const nightSwitch = $("nightSwitch");
-  const dimSwitch = $("dimSwitch");
   const exportBtn = $("exportBtn");
   const exportHint = $("exportHint");
-  const extraDimOverlay = $("extraDimOverlay");
   const sleepMinutesInput = $("sleepMinutes");
   const sleepStartBtn = $("sleepStartBtn");
   const sleepCancelBtn = $("sleepCancelBtn");
@@ -533,6 +547,15 @@
   const gotoHint = $("gotoHint");
   const gotoCancelBtn = $("gotoCancelBtn");
   const gotoConfirmBtn = $("gotoConfirmBtn");
+  const libraryBtn = $("libraryBtn");
+  const libraryOverlay = $("libraryOverlay");
+  const libraryList = $("libraryList");
+  const libraryEmptyHint = $("libraryEmptyHint");
+  const libraryCloseBtn = $("libraryCloseBtn");
+  const deleteOverlay = $("deleteOverlay");
+  const deleteHint = $("deleteHint");
+  const deleteCancelBtn = $("deleteCancelBtn");
+  const deleteConfirmBtn = $("deleteConfirmBtn");
 
   // ---------- State ----------
   let pdfDoc = null;
@@ -542,8 +565,8 @@
   let zoomPercent = loadSetting("zoom", 100);
   let speedValue = loadSetting("speed", 7);
   let nightMode = loadSetting("night", false);
-  let extraDim = loadSetting("extraDim", false);
   let currentBookName = "";
+  let currentBookId = null;
   let sleepDefaultMinutes = loadSetting("sleepMinutes", 30);
   // One-time migration: a value of exactly 20 saved before this change was
   // shipped is almost certainly just the old default lingering (nobody
@@ -576,11 +599,14 @@
   }
 
   // ---------- Book persistence (IndexedDB) ----------
-  // "bookdata" holds the PDF bytes (written once per opened file, can be
-  // large). "meta" holds just the page range + last-read page (written
-  // often while scrolling, so it's kept separate and small).
+  // Three stores, split by size/write-frequency: "bookinfo" (small — id,
+  // name, size) is what the library list reads, so listing books never
+  // has to load every book's full PDF bytes into memory. "bookcontent"
+  // holds those bytes, fetched only when a specific book is opened.
+  // "meta" holds just the last-read page per book, written often while
+  // scrolling, so it's kept separate and small too.
   const DB_NAME = "scrollablepdf-db";
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let dbPromise = null;
   function openDB(){
     if(dbPromise) return dbPromise;
@@ -589,7 +615,8 @@
       const req = indexedDB.open(DB_NAME, DB_VERSION);
       req.onupgradeneeded = ()=>{
         const db = req.result;
-        if(!db.objectStoreNames.contains("bookdata")) db.createObjectStore("bookdata", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("bookinfo")) db.createObjectStore("bookinfo", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("bookcontent")) db.createObjectStore("bookcontent", { keyPath:"id" });
         if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath:"id" });
       };
       req.onsuccess = ()=> resolve(req.result);
@@ -617,27 +644,96 @@
       });
     }catch(e){ console.error("idbGet failed", e); return null; }
   }
-  async function saveBookData(name, size, data){
+  async function idbGetAll(storeName){
     try{
-      await idbPut("bookdata", { id:"current", name, size, data, savedAt: Date.now() });
+      const db = await openDB();
+      return await new Promise((resolve, reject)=>{
+        const tx = db.transaction(storeName, "readonly");
+        const req = tx.objectStore(storeName).getAll();
+        req.onsuccess = ()=> resolve(req.result || []);
+        req.onerror = ()=> reject(req.error);
+      });
+    }catch(e){ console.error("idbGetAll failed", e); return []; }
+  }
+  async function idbDelete(storeName, key){
+    const db = await openDB();
+    return new Promise((resolve, reject)=>{
+      const tx = db.transaction(storeName, "readwrite");
+      tx.objectStore(storeName).delete(key);
+      tx.oncomplete = ()=> resolve();
+      tx.onerror = ()=> reject(tx.error);
+    });
+  }
+  function generateBookId(){
+    return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  async function saveBookData(id, name, size, data){
+    try{
+      await idbPut("bookinfo", { id, name, size, savedAt: Date.now() });
+      await idbPut("bookcontent", { id, data });
     }catch(e){
       console.error("saveBookData failed", e);
       showToast("تعذر حفظ نسخة من الكتاب لفتحه تلقائيًا لاحقًا (قد تكون مساحة التخزين ممتلئة)");
     }
   }
-  async function saveMeta(meta){
-    try{ await idbPut("meta", Object.assign({ id:"current" }, meta)); }
+  async function saveMeta(id, meta){
+    try{ await idbPut("meta", Object.assign({ id }, meta)); }
     catch(e){ console.error("saveMeta failed", e); }
   }
-  async function loadBookData(){ return idbGet("bookdata", "current"); }
-  async function loadMeta(){ return idbGet("meta", "current"); }
+  async function loadBookData(id){
+    const [info, content] = await Promise.all([idbGet("bookinfo", id), idbGet("bookcontent", id)]);
+    if(!info || !content) return null;
+    return { id, name: info.name, size: info.size, savedAt: info.savedAt, data: content.data };
+  }
+  async function loadMeta(id){ return idbGet("meta", id); }
+  async function deleteBook(id){
+    await idbDelete("bookinfo", id);
+    await idbDelete("bookcontent", id);
+    await idbDelete("meta", id);
+  }
+  // Books sorted by most-recently-saved first, each paired with its
+  // reading progress (if any) for the library list — never touches the
+  // (potentially large) PDF bytes themselves.
+  async function listBooks(){
+    const [infos, metas] = await Promise.all([idbGetAll("bookinfo"), idbGetAll("meta")]);
+    const metaById = new Map(metas.map(m => [m.id, m]));
+    return infos
+      .map(b => ({ ...b, lastPage: (metaById.get(b.id) || {}).lastPage, numPages: (metaById.get(b.id) || {}).numPages }))
+      .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  }
+  // One-time migration from the old single-book scheme (an earlier version
+  // of this app kept just one book, under a fixed id "current" in a single
+  // "bookdata" store) to the multi-book library, preserving whatever book
+  // an existing visitor already had open.
+  async function migrateLegacyBook(){
+    try{
+      const db = await openDB();
+      if(!db.objectStoreNames.contains("bookdata")) return; // nothing to migrate
+      const legacy = await idbGet("bookdata", "current");
+      if(!legacy) return;
+      const id = generateBookId();
+      const legacyMeta = await idbGet("meta", "current");
+      await idbPut("bookinfo", { id, name: legacy.name, size: legacy.size, savedAt: legacy.savedAt || Date.now() });
+      await idbPut("bookcontent", { id, data: legacy.data });
+      if(legacyMeta) await idbPut("meta", Object.assign({}, legacyMeta, { id }));
+      await idbDelete("bookdata", "current");
+      await idbDelete("meta", "current");
+      saveSetting("lastOpenedBookId", id);
+    }catch(e){ console.error("migrateLegacyBook failed", e); }
+  }
+
+  function formatBytes(n){
+    if(!n && n !== 0) return "";
+    if(n < 1024*1024) return (n/1024).toFixed(0) + " كيلوبايت";
+    return (n/(1024*1024)).toFixed(1) + " ميجابايت";
+  }
 
   let metaSaveTimer = null;
   function scheduleMetaSave(){
-    if(!pdfDoc) return;
+    if(!pdfDoc || !currentBookId) return;
     clearTimeout(metaSaveTimer);
     metaSaveTimer = setTimeout(()=>{
-      saveMeta({ lastPage: currentPageNum });
+      saveMeta(currentBookId, { lastPage: currentPageNum, numPages });
     }, 800);
   }
 
@@ -659,7 +755,6 @@
   speedRange.value = speedValue; updateSpeedHint();
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
-  if(extraDim){ dimSwitch.classList.add("on"); extraDimOverlay.hidden = false; }
   buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
 
   // ---------- Update check ----------
@@ -739,6 +834,7 @@
     try{
       resetAll();
       currentBookName = (name || "book").replace(/\.pdf$/i, "");
+      currentBookId = opts.id || null;
       // pdf.js may transfer/detach the ArrayBuffer it's given, so hand it a
       // copy and keep the original `buf` intact for persisting below.
       const loadingTask = pdfjsLib.getDocument({ data: buf.slice(0) });
@@ -762,9 +858,17 @@
       updatePageIndicator(goto);
       acquireWakeLock();
 
+      // A fresh upload gets a new library entry; reopening a book already
+      // in the library (from "My Books" or the last-session restore) just
+      // reuses its existing id — the PDF bytes are already saved, only the
+      // reading position (meta) needs touching.
       if(opts.persist){
-        saveBookData(name, buf.byteLength, buf);
-        saveMeta({ lastPage: goto });
+        currentBookId = currentBookId || generateBookId();
+        saveBookData(currentBookId, name, buf.byteLength, buf);
+      }
+      if(currentBookId){
+        saveMeta(currentBookId, { lastPage: goto, numPages });
+        saveSetting("lastOpenedBookId", currentBookId);
       }
     }catch(err){
       console.error(err);
@@ -1017,20 +1121,110 @@
     if(e.key === "Enter") gotoConfirmBtn.click();
   });
 
+  // ---------- Saved-books library ----------
+  function renderLibraryItem(book){
+    const item = document.createElement("div");
+    item.className = "library-item" + (book.id === currentBookId ? " current" : "");
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "library-item-btn";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "library-item-name";
+    nameEl.textContent = book.name || "كتاب";
+
+    const metaEl = document.createElement("div");
+    metaEl.className = "library-item-meta";
+    const parts = [formatBytes(book.size)];
+    if(book.numPages){
+      const page = book.lastPage || 1;
+      const percent = Math.round((page / book.numPages) * 100);
+      parts.push("صفحة " + page + " من " + book.numPages + " (" + percent + "%)");
+    }
+    metaEl.textContent = parts.filter(Boolean).join(" · ");
+
+    openBtn.appendChild(nameEl);
+    openBtn.appendChild(metaEl);
+    openBtn.addEventListener("click", ()=> openBookFromLibrary(book));
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "library-delete-btn";
+    delBtn.title = "حذف";
+    delBtn.textContent = "🗑️";
+    delBtn.addEventListener("click", (e)=>{ e.stopPropagation(); openDeleteConfirm(book); });
+
+    item.appendChild(openBtn);
+    item.appendChild(delBtn);
+    return item;
+  }
+  async function refreshLibraryList(){
+    const books = await listBooks();
+    libraryList.innerHTML = "";
+    libraryEmptyHint.hidden = books.length > 0;
+    books.forEach(b => libraryList.appendChild(renderLibraryItem(b)));
+  }
+  async function openLibrary(){
+    settingsPanel.classList.remove("open");
+    await refreshLibraryList();
+    libraryOverlay.classList.add("open");
+  }
+  function closeLibrary(){ libraryOverlay.classList.remove("open"); }
+  libraryBtn.addEventListener("click", openLibrary);
+  libraryCloseBtn.addEventListener("click", closeLibrary);
+  libraryOverlay.addEventListener("click", (e)=>{ if(e.target === libraryOverlay) closeLibrary(); });
+
+  async function openBookFromLibrary(book){
+    closeLibrary();
+    showToast("جارٍ فتح الكتاب…", 1200);
+    const rec = await loadBookData(book.id);
+    if(!rec || !rec.data){
+      showToast("تعذر العثور على بيانات هذا الكتاب");
+      return;
+    }
+    await openFromBytes(rec.data, rec.name, { persist:false, id: book.id, gotoPage: book.lastPage });
+  }
+
+  let pendingDeleteId = null;
+  function openDeleteConfirm(book){
+    pendingDeleteId = book.id;
+    deleteHint.textContent = "«" + (book.name || "هذا الكتاب") + "» سيُحذف نهائيًا من هذا الجهاز.";
+    deleteOverlay.classList.add("open");
+  }
+  function closeDeleteConfirm(){
+    deleteOverlay.classList.remove("open");
+    pendingDeleteId = null;
+  }
+  deleteCancelBtn.addEventListener("click", closeDeleteConfirm);
+  deleteOverlay.addEventListener("click", (e)=>{ if(e.target === deleteOverlay) closeDeleteConfirm(); });
+  deleteConfirmBtn.addEventListener("click", async ()=>{
+    const id = pendingDeleteId;
+    if(!id) return;
+    closeDeleteConfirm();
+    await deleteBook(id);
+    if(id === currentBookId){
+      // The book being read right now was just deleted — close the reader
+      // instead of leaving it open with nothing backing it anymore.
+      resetAll();
+      currentBookId = null;
+      currentBookName = "";
+      saveSetting("lastOpenedBookId", null);
+      pageIndicator.textContent = "—";
+      updateEtaBadge();
+      viewer.classList.remove("show");
+      dropzone.classList.remove("hide");
+    }
+    showToast("تم حذف الكتاب");
+    await refreshLibraryList();
+  });
+
   // ---------- Night mode ----------
   nightSwitch.addEventListener("click", ()=>{
     nightMode = !nightMode;
     nightSwitch.classList.toggle("on", nightMode);
     viewer.classList.toggle("night", nightMode);
     saveSetting("night", nightMode);
-  });
-
-  // ---------- Extra dim / eye-comfort filter ----------
-  dimSwitch.addEventListener("click", ()=>{
-    extraDim = !extraDim;
-    dimSwitch.classList.toggle("on", extraDim);
-    extraDimOverlay.hidden = !extraDim;
-    saveSetting("extraDim", extraDim);
   });
 
   // ---------- Export the book with the current visual effects ----------
@@ -1075,7 +1269,6 @@
   // what was on screen when they were made.
   const NIGHT_FILTER = "invert(0.83) sepia(0.387) saturate(2.311) brightness(0.792) contrast(1.13)";
   const NIGHT_BG = "#1e1712";
-  const DIM_OVERLAY_COLOR = "rgba(45,8,18,0.55)";
 
   function bytesToBase64(bytes){
     let binary = "";
@@ -1126,10 +1319,6 @@
         octx.filter = nightMode ? NIGHT_FILTER : "none";
         octx.drawImage(raw, 0, 0);
         octx.filter = "none";
-        if(extraDim){
-          octx.fillStyle = DIM_OVERLAY_COLOR;
-          octx.fillRect(0, 0, w, h);
-        }
 
         // Try both encodings and keep whichever is actually smaller for
         // this specific page, rather than assuming one format up front.
@@ -1154,7 +1343,7 @@
         if(n % 3 === 0) await new Promise(r => setTimeout(r, 0));
       }
 
-      const suffix = nightMode && extraDim ? " (ليلي مع تخفيف)" : nightMode ? " (ليلي)" : "";
+      const suffix = nightMode ? " (ليلي)" : "";
       doc.save(`${currentBookName || "book"}${suffix}.pdf`);
       showToast("تم تجهيز الملف للتنزيل");
     }catch(err){
@@ -1509,15 +1698,22 @@
   // ---------- Restore the last book on load ----------
   (async function tryRestoreBook(){
     try{
-      const rec = await loadBookData();
+      await migrateLegacyBook();
+      const lastId = loadSetting("lastOpenedBookId", null);
+      if(!lastId){
+        dropzone.classList.remove("hide");
+        return;
+      }
+      const rec = await loadBookData(lastId);
       if(!rec || !rec.data){
         dropzone.classList.remove("hide");
         return;
       }
-      const meta = await loadMeta();
+      const meta = await loadMeta(lastId);
       showToast("جارٍ استعادة آخر كتاب…", 1500);
       await openFromBytes(rec.data, rec.name, {
         persist: false,
+        id: lastId,
         gotoPage: meta && meta.lastPage
       });
     }catch(e){
