@@ -266,6 +266,34 @@
       repeating-linear-gradient(45deg, rgba(0,0,0,.03) 0 10px, rgba(0,0,0,.06) 10px 20px);
   }
 
+  /* ---------- Text-reading (OCR) mode ---------- */
+  #textPages{ display:none; flex-direction:column; width:100%; }
+  #viewer.text-mode #pages{ display:none; }
+  #viewer.text-mode #textPages{ display:flex; }
+  .twrap{
+    width:100%; max-width:680px; margin:0 auto;
+    padding:20px calc(18px + var(--safe-r)) 20px calc(18px + var(--safe-l));
+    border-bottom:1px solid var(--border);
+    background:var(--tx-bg, var(--bg));
+  }
+  .twrap-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
+  .twrap-label{ font-size:11.5px; color:var(--muted); }
+  .twrap-pdfbtn{
+    appearance:none; border:1px solid var(--border); background:var(--panel); color:var(--text);
+    border-radius:8px; padding:6px 10px; font-size:11.5px; cursor:pointer; touch-action:manipulation;
+    white-space:nowrap; flex:0 0 auto;
+  }
+  .twrap-pdfbtn:active{ background:var(--border); }
+  /* Rebuilt from OCR paragraphs with only single spaces inside each one
+     (not the original per-line breaks baked into the scanned page's
+     layout) — so pre-wrap only ever breaks between paragraphs, and the
+     browser is free to reflow every line to fit whatever font size is
+     currently chosen, which is the entire point of this mode. */
+  .twrap-body{
+    font-size:var(--tx-size, 20px); color:var(--tx-color, var(--text));
+    line-height:1.95; white-space:pre-wrap; text-align:justify;
+  }
+
   /* ---------- Toast ---------- */
   #toast{
     position:fixed; bottom:calc(20px + var(--safe-b)); left:50%; transform:translateX(-50%) translateY(20px);
@@ -363,6 +391,7 @@
     <div class="spacer"></div>
     <button class="tbtn" id="playBtn" title="تمرير تلقائي"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg></button>
     <button class="tbtn" id="fsBtn" title="ملء الشاشة"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="tbtn" id="textModeBtn" title="وضع القراءة النصية (استخراج النص)"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
     <button class="tbtn" id="settingsBtn" title="الإعدادات"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
     <div id="settingsPanel">
@@ -393,6 +422,31 @@
           <label style="margin:0;">الوضع الليلي</label>
           <div class="switch" id="nightSwitch"></div>
         </div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <label>حجم خط القراءة النصية (OCR)</label>
+        <div class="row">
+          <button class="stepbtn" id="textSizeMinus" type="button" title="أصغر">−</button>
+          <input type="range" id="textSizeRange" min="14" max="36" step="1" value="20">
+          <button class="stepbtn" id="textSizePlus" type="button" title="أكبر">＋</button>
+        </div>
+        <div class="hint" id="textSizeHint">20px</div>
+      </div>
+      <div class="field">
+        <div class="row" style="justify-content:space-between;">
+          <label style="margin:0;">لون النص</label>
+          <input type="color" id="textColorInput" value="#2b2a25" style="width:44px;height:34px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+        </div>
+      </div>
+      <div class="field">
+        <div class="row" style="justify-content:space-between;">
+          <label style="margin:0;">لون خلفية القراءة النصية</label>
+          <input type="color" id="textBgInput" value="#f7f0e0" style="width:44px;height:34px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+        </div>
+        <div class="hint">فعّل وضع القراءة النصية من زر الأسطر (≡) أعلى الشاشة؛ يُستخرج نص كل صفحة تلقائيًا (OCR) ويُحفظ لهذا الكتاب ليُستخدم دون إعادة استخراج لاحقًا</div>
       </div>
 
       <hr class="sep">
@@ -436,6 +490,7 @@
 
   <div id="viewer">
     <div id="pages"></div>
+    <div id="textPages"></div>
   </div>
 
   <input type="file" id="fileInput" accept="application/pdf,.pdf">
@@ -490,6 +545,11 @@
      without, so it must be available offline from the very first load
      that installed the service worker below. -->
 <script src="vendor/pdf.min.js"></script>
+<!-- Also self-hosted: OCR (text extraction) for scanned/image-only PDF
+     pages, used by the text-reading mode below. Loaded up front like
+     pdf.js itself (it's tiny — the heavy core/language files it drives
+     are fetched lazily, only the first time OCR actually runs). -->
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -502,7 +562,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.4";
+  const BUILD_VERSION = "2026-10-24.5";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -568,6 +628,14 @@
   const deleteHint = $("deleteHint");
   const deleteCancelBtn = $("deleteCancelBtn");
   const deleteConfirmBtn = $("deleteConfirmBtn");
+  const textModeBtn = $("textModeBtn");
+  const textPagesEl = $("textPages");
+  const textSizeRange = $("textSizeRange");
+  const textSizeHint = $("textSizeHint");
+  const textSizeMinus = $("textSizeMinus");
+  const textSizePlus = $("textSizePlus");
+  const textColorInput = $("textColorInput");
+  const textBgInput = $("textBgInput");
 
   // ---------- State ----------
   let pdfDoc = null;
@@ -595,6 +663,17 @@
   let io = null;                    // IntersectionObserver for lazy render
   let ioCurrent = null;             // IntersectionObserver for current-page tracking
 
+  // ---------- Text-reading (OCR) mode state ----------
+  let textMode = false;
+  const textWrapperOf = new Map();  // pageNum -> text-mode wrapper element
+  let ioText = null;                // IntersectionObserver for lazy OCR
+  let ioTextCurrent = null;         // IntersectionObserver for current-page tracking in text mode
+  let textCurrentEntries = new Map();
+  let ocrWorkerPromise = null;      // lazily created, reused for the whole session
+  let textFontSize = loadSetting("textFontSize", 20);
+  let textColor = loadSetting("textColor", "#2b2a25");
+  let textBg = loadSetting("textBg", "#f7f0e0");
+
   let autoplay = false, lastTs = null, rafId = null, etaIntervalId = null;
   let sleepTimeoutId = null, sleepEndTime = null, sleepIntervalId = null;
 
@@ -616,9 +695,11 @@
   // has to load every book's full PDF bytes into memory. "bookcontent"
   // holds those bytes, fetched only when a specific book is opened.
   // "meta" holds just the last-read page per book, written often while
-  // scrolling, so it's kept separate and small too.
+  // scrolling, so it's kept separate and small too. "pagetext" holds OCR
+  // results for the text-reading mode, one row per book+page (id is
+  // "<bookId>#<pageNum>") so a page is only ever extracted once per book.
   const DB_NAME = "scrollablepdf-db";
-  const DB_VERSION = 2;
+  const DB_VERSION = 3;
   let dbPromise = null;
   function openDB(){
     if(dbPromise) return dbPromise;
@@ -630,6 +711,7 @@
         if(!db.objectStoreNames.contains("bookinfo")) db.createObjectStore("bookinfo", { keyPath:"id" });
         if(!db.objectStoreNames.contains("bookcontent")) db.createObjectStore("bookcontent", { keyPath:"id" });
         if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("pagetext")) db.createObjectStore("pagetext", { keyPath:"id" });
       };
       req.onsuccess = ()=> resolve(req.result);
       req.onerror = ()=> reject(req.error);
@@ -698,10 +780,23 @@
     return { id, name: info.name, size: info.size, savedAt: info.savedAt, data: content.data };
   }
   async function loadMeta(id){ return idbGet("meta", id); }
+  function pageTextId(bookId, n){ return bookId + "#" + n; }
+  async function loadPageText(bookId, n){ return idbGet("pagetext", pageTextId(bookId, n)); }
+  async function savePageText(bookId, n, text){
+    try{ await idbPut("pagetext", { id: pageTextId(bookId, n), bookId, pageNum:n, text, extractedAt: Date.now() }); }
+    catch(e){ console.error("savePageText failed", e); }
+  }
+  async function deletePageTextForBook(bookId){
+    try{
+      const all = await idbGetAll("pagetext");
+      for(const row of all){ if(row.bookId === bookId) await idbDelete("pagetext", row.id); }
+    }catch(e){ console.error("deletePageTextForBook failed", e); }
+  }
   async function deleteBook(id){
     await idbDelete("bookinfo", id);
     await idbDelete("bookcontent", id);
     await idbDelete("meta", id);
+    await deletePageTextForBook(id);
   }
   // Books sorted by most-recently-saved first, each paired with its
   // reading progress (if any) for the library list — never touches the
@@ -768,6 +863,20 @@
   sleepMinutesInput.value = sleepDefaultMinutes;
   if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
   buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
+
+  const TEXT_SIZE_MIN = 14, TEXT_SIZE_MAX = 36, TEXT_SIZE_STEP = 1;
+  textFontSize = Math.max(TEXT_SIZE_MIN, Math.min(TEXT_SIZE_MAX, textFontSize));
+  textSizeRange.value = textFontSize;
+  textColorInput.value = textColor;
+  textBgInput.value = textBg;
+  function applyTextStyleVars(){
+    textPagesEl.style.setProperty("--tx-size", textFontSize + "px");
+    textPagesEl.style.setProperty("--tx-color", textColor);
+    textPagesEl.style.setProperty("--tx-bg", textBg);
+  }
+  function updateTextSizeHint(){ textSizeHint.textContent = textFontSize + "px"; }
+  updateTextSizeHint();
+  applyTextStyleVars();
 
   // ---------- Update check ----------
   // Fetches the small version.txt file straight from the network (never
@@ -863,6 +972,7 @@
       viewer.classList.add("show");
 
       buildPages(rangeStart, rangeEnd);
+      buildTextPages(rangeStart, rangeEnd);
 
       let goto = opts.gotoPage ? Math.max(rangeStart, Math.min(opts.gotoPage, rangeEnd)) : rangeStart;
       viewer.scrollTop = 0;
@@ -890,8 +1000,9 @@
     }
   }
 
-  function scrollToPage(n){
-    const wrap = wrapperOf.get(n);
+  function scrollToPage(n, mode){
+    const useText = mode ? mode === "text" : textMode;
+    const wrap = (useText ? textWrapperOf : wrapperOf).get(n);
     if(!wrap) return;
     const delta = wrap.getBoundingClientRect().top - viewer.getBoundingClientRect().top;
     viewer.scrollTop += delta;
@@ -902,9 +1013,17 @@
     releaseWakeLock();
     if(io) io.disconnect();
     if(ioCurrent) ioCurrent.disconnect();
+    if(ioText) ioText.disconnect();
+    if(ioTextCurrent) ioTextCurrent.disconnect();
     pagesEl.innerHTML = "";
     pageCache.clear();
     wrapperOf.clear();
+    textPagesEl.innerHTML = "";
+    textWrapperOf.clear();
+    textCurrentEntries.clear();
+    textMode = false;
+    textModeBtn.classList.remove("active");
+    viewer.classList.remove("text-mode");
     pdfDoc = null; numPages = 0; baseAspect = null;
   }
 
@@ -1073,6 +1192,190 @@
     wrap.dataset.rendering = "0";
     wrap.classList.add("loading");
   }
+
+  // ---------- Text-reading (OCR) mode ----------
+  function buildTextPages(start, end){
+    textPagesEl.innerHTML = "";
+    textWrapperOf.clear();
+    const frag = document.createDocumentFragment();
+    for(let n = start; n <= end; n++){
+      const wrap = document.createElement("div");
+      wrap.className = "twrap";
+      wrap.dataset.page = n;
+      wrap.dataset.ocred = "0";
+      wrap.dataset.ocring = "0";
+
+      const head = document.createElement("div");
+      head.className = "twrap-head";
+      const label = document.createElement("span");
+      label.className = "twrap-label";
+      label.textContent = "صفحة " + n;
+      const pdfBtn = document.createElement("button");
+      pdfBtn.type = "button";
+      pdfBtn.className = "twrap-pdfbtn";
+      pdfBtn.textContent = "📄 عرض PDF للتحقق";
+      pdfBtn.addEventListener("click", ()=> jumpToPdfPage(n));
+      head.appendChild(label);
+      head.appendChild(pdfBtn);
+
+      const body = document.createElement("div");
+      body.className = "twrap-body";
+      body.textContent = "…";
+
+      wrap.appendChild(head);
+      wrap.appendChild(body);
+      textWrapperOf.set(n, wrap);
+      frag.appendChild(wrap);
+    }
+    textPagesEl.appendChild(frag);
+
+    if(ioText) ioText.disconnect();
+    ioText = new IntersectionObserver(onTextLazyIntersect, {
+      root: viewer, rootMargin: "120% 0px 120% 0px", threshold: 0
+    });
+    textWrapperOf.forEach(w => ioText.observe(w));
+
+    if(ioTextCurrent) ioTextCurrent.disconnect();
+    textCurrentEntries.clear();
+    ioTextCurrent = new IntersectionObserver(onTextCurrentIntersect, {
+      root: viewer, threshold: [0, 0.25, 0.5, 0.75, 1]
+    });
+    textWrapperOf.forEach(w => ioTextCurrent.observe(w));
+  }
+
+  function onTextLazyIntersect(entries){
+    for(const entry of entries){
+      if(!entry.isIntersecting) continue;
+      const n = parseInt(entry.target.dataset.page, 10);
+      ocrPage(n, entry.target);
+    }
+  }
+
+  function onTextCurrentIntersect(entries){
+    for(const e of entries){
+      const n = parseInt(e.target.dataset.page, 10);
+      if(e.isIntersecting) textCurrentEntries.set(n, e.intersectionRatio);
+      else textCurrentEntries.delete(n);
+    }
+    let best = null, bestRatio = -1;
+    textCurrentEntries.forEach((ratio, n)=>{ if(ratio > bestRatio){ bestRatio = ratio; best = n; } });
+    if(best != null) updatePageIndicator(best);
+  }
+
+  const OCR_WIDTH = 1600; // px — enough resolution for accurate recognition without being slow
+  function ensureOcrWorker(){
+    if(!ocrWorkerPromise){
+      ocrWorkerPromise = Tesseract.createWorker("ara", Tesseract.OEM.LSTM_ONLY, {
+        workerPath: "vendor/tesseract/worker.min.js",
+        corePath: "vendor/tesseract/tesseract-core-simd-lstm.wasm.js",
+        langPath: "vendor/tesseract/lang-data",
+        workerBlobURL: false
+      });
+    }
+    return ocrWorkerPromise;
+  }
+
+  // Tesseract's per-line text keeps the original scanned page's line
+  // breaks, which would stop the browser from reflowing a paragraph to
+  // fit a different font size — rebuilding each paragraph as one
+  // space-joined line (keeping only the breaks *between* paragraphs) is
+  // what lets "change the font size" actually work in this mode.
+  function paragraphsToReflowText(blocks){
+    const paras = [];
+    (blocks || []).forEach(block=>{
+      (block.paragraphs || []).forEach(para=>{
+        const lines = (para.lines || []).map(l => (l.text || "").trim()).filter(Boolean);
+        const joined = lines.join(" ").replace(/\s+/g, " ").trim();
+        if(joined) paras.push(joined);
+      });
+    });
+    return paras.join("\n\n");
+  }
+
+  async function ocrPage(n, wrap){
+    if(!pdfDoc) return;
+    if(wrap.dataset.ocred === "1" || wrap.dataset.ocring === "1") return;
+    wrap.dataset.ocring = "1";
+    const body = wrap.querySelector(".twrap-body");
+    try{
+      if(currentBookId){
+        const cached = await loadPageText(currentBookId, n);
+        if(cached && cached.text){
+          body.textContent = cached.text;
+          wrap.dataset.ocred = "1";
+          wrap.dataset.ocring = "0";
+          return;
+        }
+      }
+      body.textContent = "جارٍ استخراج النص…";
+      const page = await getPageCached(n);
+      const natural = page.getViewport({ scale: 1 });
+      const scale = OCR_WIDTH / natural.width;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+
+      const worker = await ensureOcrWorker();
+      const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+      canvas.width = 0; canvas.height = 0;
+
+      let text = paragraphsToReflowText(data.blocks);
+      if(!text) text = (data.text || "").trim();
+      if(!text) text = "(تعذّر العثور على نص في هذه الصفحة — قد تكون صورة بلا نص واضح)";
+
+      if(textWrapperOf.get(n) === wrap) body.textContent = text;
+      wrap.dataset.ocred = "1";
+      if(currentBookId) savePageText(currentBookId, n, text);
+    }catch(err){
+      console.error("OCR failed", n, err);
+      body.textContent = "تعذّر استخراج نص هذه الصفحة.";
+    }finally{
+      wrap.dataset.ocring = "0";
+    }
+  }
+
+  function setTextMode(on){
+    if(on && !pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    const target = currentPageNum;
+    textMode = on;
+    textModeBtn.classList.toggle("active", on);
+    viewer.classList.toggle("text-mode", on);
+    requestAnimationFrame(()=> scrollToPage(target, on ? "text" : "pdf"));
+  }
+  textModeBtn.addEventListener("click", ()=> setTextMode(!textMode));
+
+  function jumpToPdfPage(n){
+    textMode = false;
+    textModeBtn.classList.remove("active");
+    viewer.classList.remove("text-mode");
+    requestAnimationFrame(()=>{ scrollToPage(n, "pdf"); updatePageIndicator(n); });
+  }
+
+  function setTextSize(val){
+    textFontSize = Math.max(TEXT_SIZE_MIN, Math.min(TEXT_SIZE_MAX, Math.round(val)));
+    textSizeRange.value = textFontSize;
+    updateTextSizeHint();
+    saveSetting("textFontSize", textFontSize);
+    applyTextStyleVars();
+  }
+  textSizeRange.addEventListener("input", ()=> setTextSize(parseInt(textSizeRange.value, 10)));
+  textSizeMinus.addEventListener("click", ()=> setTextSize(textFontSize - TEXT_SIZE_STEP));
+  textSizePlus.addEventListener("click", ()=> setTextSize(textFontSize + TEXT_SIZE_STEP));
+  textColorInput.addEventListener("input", ()=>{
+    textColor = textColorInput.value;
+    saveSetting("textColor", textColor);
+    applyTextStyleVars();
+  });
+  textBgInput.addEventListener("input", ()=>{
+    textBg = textBgInput.value;
+    saveSetting("textBg", textBg);
+    applyTextStyleVars();
+  });
 
   function relayoutAll(){
     if(!pdfDoc) return;
