@@ -111,6 +111,12 @@
     gap:6px; min-width:40px; min-height:40px;
     touch-action:manipulation; user-select:none;
   }
+  /* Toolbar icons are inline SVG, not emoji — Apple Color Emoji in
+     particular renders visibly soft/smudgy at small sizes (the gear and
+     expand glyphs especially), while a stroked vector icon stays crisp
+     at any size or pixel density. svg{display:block} just avoids the
+     few stray px of baseline whitespace inline SVGs get by default. */
+  .tbtn svg{ display:block; flex:0 0 auto; }
   .tbtn:active{ background:var(--border); }
   .tbtn.active{ background:var(--accent); color:var(--accent-contrast); border-color:var(--accent); }
   .tbtn.small{ font-size:13px; padding:8px; min-width:36px; min-height:36px; }
@@ -349,15 +355,15 @@
 <div id="app">
 
   <div id="toolbar">
-    <button class="tbtn" id="openBtn" title="فتح ملف PDF">📂</button>
+    <button class="tbtn" id="openBtn" title="فتح ملف PDF"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg></button>
     <button type="button" id="pageIndicator" title="الانتقال إلى صفحة">—</button>
     <span id="etaBadge" class="eta-badge" hidden></span>
     <div class="spacer"></div>
     <span class="brand">القارئ المريح</span>
     <div class="spacer"></div>
-    <button class="tbtn" id="playBtn" title="تمرير تلقائي">▶️</button>
-    <button class="tbtn" id="fsBtn" title="ملء الشاشة">⛶</button>
-    <button class="tbtn" id="settingsBtn" title="الإعدادات">⚙️</button>
+    <button class="tbtn" id="playBtn" title="تمرير تلقائي"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg></button>
+    <button class="tbtn" id="fsBtn" title="ملء الشاشة"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="tbtn" id="settingsBtn" title="الإعدادات"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
     <div id="settingsPanel">
       <div class="field">
@@ -496,7 +502,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.2";
+  const BUILD_VERSION = "2026-10-24.3";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -1446,10 +1452,13 @@
     rafId = requestAnimationFrame(autoplayStep);
   }
 
+  const PLAY_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg>';
+  const PAUSE_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+
   function startAutoplay(){
     if(!pdfDoc || autoplay) return;
     autoplay = true; lastTs = null;
-    playBtn.textContent = "⏸️";
+    playBtn.innerHTML = PAUSE_ICON;
     playBtn.classList.add("active");
     rafId = requestAnimationFrame(autoplayStep);
     // Keep the ETA ticking down smoothly while scrolling within a single
@@ -1460,7 +1469,7 @@
   function stopAutoplay(){
     autoplay = false; lastTs = null;
     if(rafId) cancelAnimationFrame(rafId);
-    playBtn.textContent = "▶️";
+    playBtn.innerHTML = PLAY_ICON;
     playBtn.classList.remove("active");
     clearInterval(etaIntervalId);
   }
