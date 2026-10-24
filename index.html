@@ -63,7 +63,6 @@
     border-bottom:1px solid var(--border);
     box-shadow:var(--shadow);
     position:relative; z-index:20;
-    transition: transform .28s ease, opacity .28s ease;
   }
   body.fullscreen-mode #toolbar{
     /* Overlay the toolbar instead of reserving its height in the flex
@@ -71,6 +70,13 @@
        gap where it used to sit, wasting screen space (very noticeable
        in landscape on iPad/iPhone). */
     position:absolute; top:0; left:0; right:0;
+    /* Scoped here, not on the base #toolbar rule: declaring a transform/
+       opacity transition unconditionally makes Safari pre-promote the
+       toolbar to its own GPU-composited layer at all times, which has
+       been reported to render fine UI detail (small icons/text) visibly
+       soft even at rest, not just mid-animation — only worth the cost
+       while fullscreen mode can actually hide/show this element. */
+    transition: transform .28s ease, opacity .28s ease;
   }
   body.fullscreen-mode #toolbar.hidden{
     transform: translateY(-115%);
@@ -490,7 +496,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.1";
+  const BUILD_VERSION = "2026-10-24.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
