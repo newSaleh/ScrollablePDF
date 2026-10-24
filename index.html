@@ -13,7 +13,7 @@
      from inside a regular Safari tab, only a standalone home-screen app. -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="القارئ المريح">
 <style>
   :root{
@@ -64,10 +64,6 @@
     box-shadow:var(--shadow);
     position:relative; z-index:20;
   }
-  /* See the "ios-standalone" class comment in the script below — iOS
-     already reserves the opaque status-bar strip in this mode, so don't
-     also pad the toolbar down by its height a second time. */
-  html.ios-standalone #toolbar{ padding-top:10px; }
   body.fullscreen-mode #toolbar{
     /* Overlay the toolbar instead of reserving its height in the flex
        column — otherwise hiding it (translateY) still leaves a blank
@@ -558,19 +554,6 @@
 (function(){
   "use strict";
 
-  // In standalone/"Add to Home Screen" mode with an opaque status-bar
-  // style (see the <meta name="apple-mobile-web-app-status-bar-style">
-  // tag), iOS itself reserves that strip and starts the web view's
-  // content below it — env(safe-area-inset-top) still reports its height
-  // regardless, so padding the toolbar by that amount on top of what iOS
-  // already reserved double-counts it, leaving a blank gap above the
-  // toolbar. Only a regular Safari tab (where that meta tag has no
-  // effect at all) still needs the CSS safe-area padding to avoid the
-  // notch/Dynamic Island. Done as early as possible, before first paint.
-  if(window.navigator && window.navigator.standalone){
-    document.documentElement.classList.add("ios-standalone");
-  }
-
   // Bump this on every meaningful change — shown at the bottom of the
   // settings panel so it's easy to confirm a device is actually on the
   // latest version rather than a stale cached copy (this matters a lot on
@@ -579,7 +562,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.6";
+  const BUILD_VERSION = "2026-10-24.7";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
