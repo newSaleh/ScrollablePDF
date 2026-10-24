@@ -45,6 +45,17 @@
     overflow:hidden;
     position:relative;
   }
+  /* On iPhones with a Dynamic Island/notch, the strip behind the status
+     bar (a translucent status-bar-style lets page content draw there)
+     shows whatever's immediately behind it — normally the light page
+     background, which reads as a pale, slightly hazy band against dark
+     content once night mode is on (worst with the toolbar hidden in
+     fullscreen, where nothing else covers that area). Darkening the page
+     background itself in night mode — not just the book pages inside
+     #viewer — is the only way to fix the color there, since that strip
+     isn't a normal element we can target directly. */
+  html.night-mode, html.night-mode body{ background:#14100c; }
+  html.night-mode #toolbar{ background:#1e1712; border-bottom-color:#3a2f24; }
 
   /* ---------- Toolbar ---------- */
   #toolbar{
@@ -562,7 +573,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.7";
+  const BUILD_VERSION = "2026-10-24.8";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -861,7 +872,7 @@
   zoomRange.value = zoomPercent; updateZoomHint();
   speedRange.value = speedValue; updateSpeedHint();
   sleepMinutesInput.value = sleepDefaultMinutes;
-  if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); }
+  if(nightMode){ nightSwitch.classList.add("on"); viewer.classList.add("night"); document.documentElement.classList.add("night-mode"); }
   buildInfo.textContent = "الإصدار: " + BUILD_VERSION;
 
   const TEXT_SIZE_MIN = 14, TEXT_SIZE_MAX = 36, TEXT_SIZE_STEP = 1;
@@ -1556,6 +1567,7 @@
     nightMode = !nightMode;
     nightSwitch.classList.toggle("on", nightMode);
     viewer.classList.toggle("night", nightMode);
+    document.documentElement.classList.toggle("night-mode", nightMode);
     saveSetting("night", nightMode);
   });
 
