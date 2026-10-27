@@ -361,8 +361,8 @@
 
   /* ---------- Quote selection / composer / list ---------- */
   /* Full-screen (not the small centered card other modals use) — needs
-     room to show a whole page image plus a scrollable area to draw the
-     selection box in. */
+     room to show a whole page image plus the invisible selectable text
+     layer drawn over it. */
   .quote-select-overlay{ padding:0; align-items:stretch; }
   .quote-select-card{
     background:var(--bg); width:100%; height:100%;
@@ -373,21 +373,28 @@
   .quote-select-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .quote-select-head h3{ margin:0; font-size:16px; }
   .quote-select-hint{ font-size:12.5px; color:var(--muted); margin:8px 0 12px; text-align:center; }
-  /* The whole page is scaled to fit here at once (never scrolled) —
-     touch-action:none below needs a finger drag to always mean "draw a
-     selection box", never a scroll, and the only way to make both true
-     at once is to never need scrolling in the first place. */
+  /* The whole page is scaled to fit here at once (never scrolled), so
+     scrolling the scroll-less container never fights the drag gesture
+     that selects text. */
   .quote-select-scroll{
     flex:1 1 auto; overflow:hidden; border:1px solid var(--border); border-radius:10px;
     background:#fff; display:flex; align-items:center; justify-content:center;
   }
-  .quote-select-imgwrap{ position:relative; touch-action:none; }
+  .quote-select-imgwrap{ position:relative; }
   .quote-select-imgwrap canvas{ display:block; } /* width/height set inline by JS to the fitted size */
-  .quote-selbox{
-    position:absolute; border:2px solid var(--accent); background:rgba(169,103,63,.22);
-    pointer-events:none;
+  /* The OCR'd text layer: one invisible, positioned, selectable span per
+     recognized line — the same trick pdf.js itself uses for a real text
+     layer over a rendered page, just fed by OCR output (bbox per line)
+     instead of the PDF's own embedded text positions. Invisible (color:
+     transparent) since the printed words are already visible in the
+     canvas right underneath; this only needs to be draggable/selectable,
+     not legible. */
+  .quote-textlayer{ position:absolute; inset:0; }
+  .quote-textline{
+    position:absolute; white-space:pre; color:transparent;
+    cursor:text; user-select:text; -webkit-user-select:text;
+    line-height:1;
   }
-  .quote-selbox[hidden]{ display:none; }
   .quote-select-actions{ display:flex; gap:8px; margin-top:12px; }
   .quote-select-actions .tbtn{ flex:1; font-size:14px; padding:12px; }
   .quote-select-actions[hidden]{ display:none; }
@@ -566,15 +573,14 @@
         <h3>تحديد نص للاقتباس</h3>
         <button class="tbtn small" id="quoteSelectCancelBtn" type="button">إلغاء</button>
       </div>
-      <div class="quote-select-hint">ارسم مربعًا حول النص الذي تريد اقتباسه من الصفحة</div>
+      <div class="quote-select-hint" id="quoteSelectHint">جارٍ تجهيز الصفحة…</div>
       <div class="quote-select-scroll" id="quoteSelectScroll">
         <div class="quote-select-imgwrap" id="quoteSelectImgWrap">
-          <div class="quote-selbox" id="quoteSelBox" hidden></div>
+          <div class="quote-textlayer" id="quoteTextLayer"></div>
         </div>
       </div>
       <div class="quote-select-actions" id="quoteSelectActions" hidden>
-        <button class="tbtn" id="quoteSelectRedoBtn" type="button">إعادة التحديد</button>
-        <button class="tbtn accent" id="quoteSelectConfirmBtn" type="button">اقتباس ◀</button>
+        <button class="tbtn accent" id="quoteSelectConfirmBtn" type="button">اقتباس المحدد ◀</button>
       </div>
     </div>
   </div>
@@ -639,7 +645,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-27.1";
+  const BUILD_VERSION = "2026-10-27.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -710,9 +716,9 @@
   const quoteSelectCancelBtn = $("quoteSelectCancelBtn");
   const quoteSelectScroll = $("quoteSelectScroll");
   const quoteSelectImgWrap = $("quoteSelectImgWrap");
-  const quoteSelBox = $("quoteSelBox");
+  const quoteTextLayer = $("quoteTextLayer");
+  const quoteSelectHint = $("quoteSelectHint");
   const quoteSelectActions = $("quoteSelectActions");
-  const quoteSelectRedoBtn = $("quoteSelectRedoBtn");
   const quoteSelectConfirmBtn = $("quoteSelectConfirmBtn");
   const quoteComposeOverlay = $("quoteComposeOverlay");
   const quoteComposeSource = $("quoteComposeSource");
@@ -1085,6 +1091,7 @@
     pagesEl.innerHTML = "";
     pageCache.clear();
     wrapperOf.clear();
+    quoteLineCache.clear();
     pdfDoc = null; numPages = 0; baseAspect = null;
   }
 
@@ -1428,15 +1435,20 @@
     await refreshLibraryList();
   });
 
-  // ---------- Quote extraction (select a region → OCR just that crop) ----------
-  const QUOTE_SRC_WIDTH = 1400; // px — internal render resolution, independent of display size
-  const QUOTE_OCR_WIDTH = 900;  // px — upscale target for the cropped region before OCR
+  // ---------- Quote extraction (native text selection over an OCR'd page) ----------
+  // The book pages are scanned images with no real text layer, so there's
+  // nothing for the browser to natively select. This builds a synthetic
+  // one: OCR the whole visible page once, then lay one invisible,
+  // positioned <span> per recognized line over the image — the same
+  // technique pdf.js itself uses for a real text layer, just fed by OCR
+  // bounding boxes instead of the PDF's own text positions. The result
+  // behaves like real selectable text: drag to highlight, native
+  // selection handles, OS copy menu.
+  const QUOTE_SRC_WIDTH = 1600; // px — internal render/OCR resolution, independent of display size
   let quoteSourceCanvas = null; // the full page, rendered once per selection session
   let quotePageNum = null;      // frozen at the moment the quote button was tapped
-  let quoteDragging = false;
-  let quoteDragStart = null;    // {x,y} in CSS px, relative to quoteSelectImgWrap
-  let quoteSelRect = null;      // finalized {left,top,width,height} in CSS px once a drag ends
   let ocrWorkerPromise = null;  // lazily created, reused for the whole session
+  const quoteLineCache = new Map(); // pageNum -> lines[], cleared per book in resetAll()
 
   function ensureOcrWorker(){
     if(!ocrWorkerPromise){
@@ -1465,6 +1477,28 @@
     return canvas;
   }
 
+  function extractLines(blocks){
+    const lines = [];
+    (blocks || []).forEach(block=>{
+      (block.paragraphs || []).forEach(para=>{
+        (para.lines || []).forEach(line=>{
+          const text = (line.text || "").replace(/\s+$/, "");
+          if(text && line.bbox) lines.push({ text, bbox: line.bbox });
+        });
+      });
+    });
+    return lines;
+  }
+
+  async function getQuoteLines(n, canvas){
+    if(quoteLineCache.has(n)) return quoteLineCache.get(n);
+    const worker = await ensureOcrWorker();
+    const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
+    const lines = extractLines(data.blocks);
+    quoteLineCache.set(n, lines);
+    return lines;
+  }
+
   // Sizes the rendered page (and, via the centering flex on its parent,
   // positions it) so the whole thing fits inside the available area at
   // once — see the .quote-select-scroll CSS comment for why that matters.
@@ -1485,137 +1519,84 @@
     if(quoteSelectOverlay.classList.contains("open")) fitQuoteCanvas();
   });
 
+  // Builds the invisible text layer for the current (already fitted)
+  // canvas: one <span> per OCR'd line, positioned/sized from its bbox
+  // (in the canvas's own pixel space) scaled down to the displayed CSS
+  // size. Anchored from the physical right edge, not left — Arabic text
+  // starts there, so scaling the span to match the line's true width
+  // must keep that edge fixed rather than the (reading-order) end.
+  function buildQuoteTextLayer(lines){
+    quoteTextLayer.innerHTML = "";
+    const dispW = quoteSourceCanvas.clientWidth;
+    const scale = dispW / quoteSourceCanvas.width;
+    const frag = document.createDocumentFragment();
+    lines.forEach(line=>{
+      const { x0, y0, x1, y1 } = line.bbox;
+      const boxW = (x1 - x0) * scale;
+      const boxH = (y1 - y0) * scale;
+      if(boxW < 2 || boxH < 2) return;
+      const span = document.createElement("span");
+      span.className = "quote-textline";
+      span.dir = "rtl";
+      span.textContent = line.text;
+      span.style.right = (dispW - x1 * scale) + "px";
+      span.style.top = (y0 * scale) + "px";
+      span.style.height = boxH + "px";
+      span.style.fontSize = Math.max(6, boxH * 0.85) + "px";
+      frag.appendChild(span);
+      // Stretch the glyphs horizontally to fill the real line width —
+      // mirrors pdf.js's own text-layer sizing trick (see CSS comment).
+      const naturalWidth = span.getBoundingClientRect().width;
+      if(naturalWidth > 0){
+        span.style.transformOrigin = "right top";
+        span.style.transform = `scaleX(${boxW / naturalWidth})`;
+      }
+    });
+    quoteTextLayer.appendChild(frag);
+  }
+
   async function openQuoteSelect(){
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
     quotePageNum = currentPageNum;
     quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
-    quoteSelBox.hidden = true;
+    quoteTextLayer.innerHTML = "";
     quoteSelectActions.hidden = true;
-    quoteSelRect = null;
     quoteSourceCanvas = null;
+    quoteSelectHint.textContent = "جارٍ تجهيز الصفحة…";
     quoteSelectOverlay.classList.add("open");
     try{
       const canvas = await renderQuoteSourceCanvas(quotePageNum);
       quoteSourceCanvas = canvas;
-      quoteSelectImgWrap.insertBefore(canvas, quoteSelBox);
+      quoteSelectImgWrap.insertBefore(canvas, quoteTextLayer);
       fitQuoteCanvas();
+      const lines = await getQuoteLines(quotePageNum, canvas);
+      buildQuoteTextLayer(lines);
+      quoteSelectHint.textContent = "اسحب لتحديد النص، ثم اضغط اقتباس المحدد";
+      quoteSelectActions.hidden = false;
     }catch(err){
-      console.error("quote source render failed", err);
-      showToast("تعذر تحميل الصفحة");
+      console.error("quote page preparation failed", err);
+      showToast("تعذر تجهيز الصفحة للتحديد");
       closeQuoteSelect();
     }
   }
   function closeQuoteSelect(){
     quoteSelectOverlay.classList.remove("open");
     quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    quoteTextLayer.innerHTML = "";
     quoteSourceCanvas = null;
-    quoteSelBox.hidden = true;
     quoteSelectActions.hidden = true;
-    quoteSelRect = null;
-    quoteDragging = false;
+    const sel = window.getSelection();
+    if(sel) sel.removeAllRanges();
   }
   quoteBtn.addEventListener("click", openQuoteSelect);
   quoteSelectCancelBtn.addEventListener("click", closeQuoteSelect);
 
-  function clientToImgWrapPoint(clientX, clientY){
-    const rect = quoteSelectImgWrap.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(clientX - rect.left, rect.width)),
-      y: Math.max(0, Math.min(clientY - rect.top, rect.height))
-    };
-  }
-  quoteSelectImgWrap.addEventListener("pointerdown", (e)=>{
-    if(!quoteSourceCanvas) return;
-    quoteDragging = true;
-    quoteDragStart = clientToImgWrapPoint(e.clientX, e.clientY);
-    quoteSelBox.hidden = false;
-    quoteSelectActions.hidden = true;
-    quoteSelBox.style.left = quoteDragStart.x + "px";
-    quoteSelBox.style.top = quoteDragStart.y + "px";
-    quoteSelBox.style.width = "0px";
-    quoteSelBox.style.height = "0px";
-    try{ quoteSelectImgWrap.setPointerCapture(e.pointerId); }catch(err){}
-    e.preventDefault();
-  });
-  quoteSelectImgWrap.addEventListener("pointermove", (e)=>{
-    if(!quoteDragging) return;
-    const p = clientToImgWrapPoint(e.clientX, e.clientY);
-    const left = Math.min(quoteDragStart.x, p.x);
-    const top = Math.min(quoteDragStart.y, p.y);
-    const width = Math.abs(p.x - quoteDragStart.x);
-    const height = Math.abs(p.y - quoteDragStart.y);
-    quoteSelBox.style.left = left + "px";
-    quoteSelBox.style.top = top + "px";
-    quoteSelBox.style.width = width + "px";
-    quoteSelBox.style.height = height + "px";
-    e.preventDefault();
-  });
-  function finishQuoteDrag(){
-    if(!quoteDragging) return;
-    quoteDragging = false;
-    const width = parseFloat(quoteSelBox.style.width) || 0;
-    const height = parseFloat(quoteSelBox.style.height) || 0;
-    if(width < 10 || height < 10){
-      // Too small to be a deliberate selection (a stray tap) — drop it.
-      quoteSelBox.hidden = true;
-      quoteSelRect = null;
-      return;
-    }
-    quoteSelRect = {
-      left: parseFloat(quoteSelBox.style.left) || 0,
-      top: parseFloat(quoteSelBox.style.top) || 0,
-      width, height
-    };
-    quoteSelectActions.hidden = false;
-  }
-  quoteSelectImgWrap.addEventListener("pointerup", finishQuoteDrag);
-  quoteSelectImgWrap.addEventListener("pointercancel", finishQuoteDrag);
-
-  quoteSelectRedoBtn.addEventListener("click", ()=>{
-    quoteSelBox.hidden = true;
-    quoteSelectActions.hidden = true;
-    quoteSelRect = null;
-  });
-
-  quoteSelectConfirmBtn.addEventListener("click", async ()=>{
-    if(!quoteSelRect || !quoteSourceCanvas) return;
-    quoteSelectConfirmBtn.disabled = true;
-    const originalLabel = quoteSelectConfirmBtn.textContent;
-    quoteSelectConfirmBtn.textContent = "⏳ جارٍ استخراج النص…";
-    try{
-      // Map the selection from displayed CSS pixels back to the source
-      // canvas's own (higher) resolution.
-      const ratioX = quoteSourceCanvas.width / quoteSourceCanvas.clientWidth;
-      const ratioY = quoteSourceCanvas.height / quoteSourceCanvas.clientHeight;
-      const sx = Math.round(quoteSelRect.left * ratioX);
-      const sy = Math.round(quoteSelRect.top * ratioY);
-      const sw = Math.round(quoteSelRect.width * ratioX);
-      const sh = Math.round(quoteSelRect.height * ratioY);
-
-      // Upscale small selections before OCR — recognition accuracy drops
-      // sharply on low-resolution crops, and a selected line or two is
-      // often much narrower than a full page.
-      const upscale = Math.max(1, QUOTE_OCR_WIDTH / sw);
-      const crop = document.createElement("canvas");
-      crop.width = Math.max(1, Math.round(sw * upscale));
-      crop.height = Math.max(1, Math.round(sh * upscale));
-      const cctx = crop.getContext("2d");
-      cctx.imageSmoothingQuality = "high";
-      cctx.drawImage(quoteSourceCanvas, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
-
-      const worker = await ensureOcrWorker();
-      const { data } = await worker.recognize(crop);
-      crop.width = 0; crop.height = 0;
-
-      openQuoteCompose((data.text || "").trim());
-    }catch(err){
-      console.error("quote OCR failed", err);
-      showToast("تعذر استخراج النص من التحديد — يمكنك كتابته يدويًا");
-      openQuoteCompose("");
-    }finally{
-      quoteSelectConfirmBtn.disabled = false;
-      quoteSelectConfirmBtn.textContent = originalLabel;
-    }
+  quoteSelectConfirmBtn.addEventListener("click", ()=>{
+    const sel = window.getSelection();
+    const text = sel ? sel.toString().trim() : "";
+    if(!text){ showToast("حدد نصًا أولًا"); return; }
+    sel.removeAllRanges();
+    openQuoteCompose(text);
   });
 
   function openQuoteCompose(initialText){
