@@ -380,21 +380,33 @@
     flex:1 1 auto; overflow:hidden; border:1px solid var(--border); border-radius:10px;
     background:#fff; display:flex; align-items:center; justify-content:center;
   }
-  .quote-select-imgwrap{ position:relative; }
-  .quote-select-imgwrap canvas{ display:block; } /* width/height set inline by JS to the fitted size */
-  /* The OCR'd text layer: one invisible, positioned, selectable span per
-     recognized line — the same trick pdf.js itself uses for a real text
-     layer over a rendered page, just fed by OCR output (bbox per line)
-     instead of the PDF's own embedded text positions. Invisible (color:
-     transparent) since the printed words are already visible in the
-     canvas right underneath; this only needs to be draggable/selectable,
-     not legible. */
-  .quote-textlayer{ position:absolute; inset:0; }
-  .quote-textline{
-    position:absolute; white-space:pre; color:transparent;
-    cursor:text; user-select:text; -webkit-user-select:text;
-    line-height:1;
+  /* touch-action:none hands every drag on the page to our own pointer
+     handlers below — native text selection isn't used at all (it isn't
+     reliable over a synthetic, absolutely-positioned OCR layer on real
+     mobile browsers), so nothing here should fight it. */
+  .quote-select-imgwrap{ position:relative; touch-action:none; }
+  .quote-select-imgwrap canvas{ display:block; pointer-events:none; } /* width/height set inline by JS to the fitted size */
+  /* Our own selection highlight, drawn as one rect per covered line
+     (merged across that line's selected words) rather than per word, so
+     a multi-word run on the same line reads as one continuous highlight
+     instead of separate blocks with gaps between them. */
+  .quote-highlight-layer{ position:absolute; inset:0; pointer-events:none; }
+  .quote-highlight-rect{
+    position:absolute; background:rgba(250,204,21,.45); border-radius:3px;
   }
+  /* Drag handles, shown once a selection exists: a dot above a thin stem
+     that spans that line's height, draggable to fine-tune the selection
+     start/end without having to redraw the whole thing. */
+  .quote-handle{
+    position:absolute; width:16px; height:16px; border-radius:50%;
+    background:var(--accent); box-shadow:0 1px 4px rgba(0,0,0,.35);
+    top:0; transform:translate(50%,-100%); touch-action:none;
+  }
+  .quote-handle::after{
+    content:""; position:absolute; right:50%; top:100%; width:2px;
+    height:var(--stem-h, 20px); background:var(--accent); transform:translateX(50%);
+  }
+  .quote-handle[hidden]{ display:none; }
   .quote-select-actions{ display:flex; gap:8px; margin-top:12px; }
   .quote-select-actions .tbtn{ flex:1; font-size:14px; padding:12px; }
   .quote-select-actions[hidden]{ display:none; }
@@ -576,7 +588,9 @@
       <div class="quote-select-hint" id="quoteSelectHint">جارٍ تجهيز الصفحة…</div>
       <div class="quote-select-scroll" id="quoteSelectScroll">
         <div class="quote-select-imgwrap" id="quoteSelectImgWrap">
-          <div class="quote-textlayer" id="quoteTextLayer"></div>
+          <div class="quote-highlight-layer" id="quoteHighlightLayer"></div>
+          <div class="quote-handle" id="quoteHandleStart" hidden></div>
+          <div class="quote-handle" id="quoteHandleEnd" hidden></div>
         </div>
       </div>
       <div class="quote-select-actions" id="quoteSelectActions" hidden>
@@ -645,7 +659,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-27.2";
+  const BUILD_VERSION = "2026-10-27.3";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -716,7 +730,9 @@
   const quoteSelectCancelBtn = $("quoteSelectCancelBtn");
   const quoteSelectScroll = $("quoteSelectScroll");
   const quoteSelectImgWrap = $("quoteSelectImgWrap");
-  const quoteTextLayer = $("quoteTextLayer");
+  const quoteHighlightLayer = $("quoteHighlightLayer");
+  const quoteHandleStart = $("quoteHandleStart");
+  const quoteHandleEnd = $("quoteHandleEnd");
   const quoteSelectHint = $("quoteSelectHint");
   const quoteSelectActions = $("quoteSelectActions");
   const quoteSelectConfirmBtn = $("quoteSelectConfirmBtn");
@@ -1091,7 +1107,7 @@
     pagesEl.innerHTML = "";
     pageCache.clear();
     wrapperOf.clear();
-    quoteLineCache.clear();
+    quoteWordCache.clear();
     pdfDoc = null; numPages = 0; baseAspect = null;
   }
 
@@ -1435,20 +1451,25 @@
     await refreshLibraryList();
   });
 
-  // ---------- Quote extraction (native text selection over an OCR'd page) ----------
+  // ---------- Quote extraction (custom word-level selection over an OCR'd page) ----------
   // The book pages are scanned images with no real text layer, so there's
-  // nothing for the browser to natively select. This builds a synthetic
-  // one: OCR the whole visible page once, then lay one invisible,
-  // positioned <span> per recognized line over the image — the same
-  // technique pdf.js itself uses for a real text layer, just fed by OCR
-  // bounding boxes instead of the PDF's own text positions. The result
-  // behaves like real selectable text: drag to highlight, native
-  // selection handles, OS copy menu.
+  // nothing for the browser to natively select — and relying on native
+  // selection over a synthetic, absolutely-positioned OCR overlay turned
+  // out not to be reliable on real mobile browsers either. This instead
+  // OCRs the whole visible page into word-level boxes once, then runs its
+  // own drag-to-select (snapping to the nearest word) with a highlight we
+  // draw ourselves and draggable handles to fine-tune the range — the
+  // same interaction real text-selection UIs use, just built on our own
+  // hit-testing instead of depending on the browser's.
   const QUOTE_SRC_WIDTH = 1600; // px — internal render/OCR resolution, independent of display size
   let quoteSourceCanvas = null; // the full page, rendered once per selection session
   let quotePageNum = null;      // frozen at the moment the quote button was tapped
   let ocrWorkerPromise = null;  // lazily created, reused for the whole session
-  const quoteLineCache = new Map(); // pageNum -> lines[], cleared per book in resetAll()
+  const quoteWordCache = new Map(); // pageNum -> words[], cleared per book in resetAll()
+  let quoteWords = [];          // flat, reading-order words for the open page
+  let quoteStartIdx = null;     // index into quoteWords, selection anchor
+  let quoteEndIdx = null;       // index into quoteWords, selection focus
+  let quoteDragMode = null;     // null | "new" | "start" | "end"
 
   function ensureOcrWorker(){
     if(!ocrWorkerPromise){
@@ -1477,26 +1498,54 @@
     return canvas;
   }
 
-  function extractLines(blocks){
-    const lines = [];
+  // Flattens OCR output into reading-order words — line by line top to
+  // bottom, each line's words in the order Tesseract already gives them
+  // (right-to-left for Arabic, i.e. already correct reading order) —
+  // tagged with which paragraph/line they came from so a selection
+  // spanning several lines can be rejoined sensibly later (see
+  // wordsToText): a space between wrapped lines of the same paragraph, a
+  // blank line between actual paragraph breaks.
+  function extractWords(blocks){
+    const words = [];
+    let paraIdx = 0, lineIdx = 0;
     (blocks || []).forEach(block=>{
       (block.paragraphs || []).forEach(para=>{
         (para.lines || []).forEach(line=>{
-          const text = (line.text || "").replace(/\s+$/, "");
-          if(text && line.bbox) lines.push({ text, bbox: line.bbox });
+          (line.words || []).forEach(word=>{
+            const text = (word.text || "").trim();
+            if(text && word.bbox) words.push({ text, bbox: word.bbox, paraIdx, lineIdx });
+          });
+          lineIdx++;
         });
+        paraIdx++;
       });
     });
-    return lines;
+    return words;
   }
 
-  async function getQuoteLines(n, canvas){
-    if(quoteLineCache.has(n)) return quoteLineCache.get(n);
+  async function getQuoteWords(n, canvas){
+    if(quoteWordCache.has(n)) return quoteWordCache.get(n);
     const worker = await ensureOcrWorker();
     const { data } = await worker.recognize(canvas, {}, { text: true, blocks: true });
-    const lines = extractLines(data.blocks);
-    quoteLineCache.set(n, lines);
-    return lines;
+    const words = extractWords(data.blocks);
+    quoteWordCache.set(n, words);
+    return words;
+  }
+
+  function wordsToText(words){
+    if(!words.length) return "";
+    const lineGroups = [];
+    words.forEach(w=>{
+      const last = lineGroups[lineGroups.length - 1];
+      if(last && last.lineIdx === w.lineIdx) last.parts.push(w.text);
+      else lineGroups.push({ paraIdx: w.paraIdx, lineIdx: w.lineIdx, parts: [w.text] });
+    });
+    let out = lineGroups[0].parts.join(" ");
+    for(let i = 1; i < lineGroups.length; i++){
+      const sep = lineGroups[i].paraIdx !== lineGroups[i - 1].paraIdx ? "\n\n" : " ";
+      out += sep + lineGroups[i].parts.join(" ");
+    }
+    return out.trim();
   }
 
   // Sizes the rendered page (and, via the centering flex on its parent,
@@ -1516,50 +1565,150 @@
     quoteSelectImgWrap.style.height = dispH + "px";
   }
   window.addEventListener("resize", ()=>{
-    if(quoteSelectOverlay.classList.contains("open")) fitQuoteCanvas();
+    if(quoteSelectOverlay.classList.contains("open")){
+      fitQuoteCanvas();
+      renderQuoteSelection();
+    }
   });
 
-  // Builds the invisible text layer for the current (already fitted)
-  // canvas: one <span> per OCR'd line, positioned/sized from its bbox
-  // (in the canvas's own pixel space) scaled down to the displayed CSS
-  // size. Anchored from the physical right edge, not left — Arabic text
-  // starts there, so scaling the span to match the line's true width
-  // must keep that edge fixed rather than the (reading-order) end.
-  function buildQuoteTextLayer(lines){
-    quoteTextLayer.innerHTML = "";
-    const dispW = quoteSourceCanvas.clientWidth;
-    const scale = dispW / quoteSourceCanvas.width;
-    const frag = document.createDocumentFragment();
-    lines.forEach(line=>{
-      const { x0, y0, x1, y1 } = line.bbox;
-      const boxW = (x1 - x0) * scale;
-      const boxH = (y1 - y0) * scale;
-      if(boxW < 2 || boxH < 2) return;
-      const span = document.createElement("span");
-      span.className = "quote-textline";
-      span.dir = "rtl";
-      span.textContent = line.text;
-      span.style.right = (dispW - x1 * scale) + "px";
-      span.style.top = (y0 * scale) + "px";
-      span.style.height = boxH + "px";
-      span.style.fontSize = Math.max(6, boxH * 0.85) + "px";
-      frag.appendChild(span);
-      // Stretch the glyphs horizontally to fill the real line width —
-      // mirrors pdf.js's own text-layer sizing trick (see CSS comment).
-      const naturalWidth = span.getBoundingClientRect().width;
-      if(naturalWidth > 0){
-        span.style.transformOrigin = "right top";
-        span.style.transform = `scaleX(${boxW / naturalWidth})`;
-      }
-    });
-    quoteTextLayer.appendChild(frag);
+  function quoteScale(){
+    return quoteSourceCanvas ? quoteSourceCanvas.clientWidth / quoteSourceCanvas.width : 1;
   }
+  // CSS-pixel bbox of a word, relative to quoteSelectImgWrap's own
+  // top-left corner (i.e. in the displayed/fitted canvas's coordinates).
+  function scaledBbox(word){
+    const s = quoteScale();
+    const { x0, y0, x1, y1 } = word.bbox;
+    return { left: x0 * s, top: y0 * s, right: x1 * s, bottom: y1 * s, width: (x1 - x0) * s, height: (y1 - y0) * s };
+  }
+  function clientToWrapPoint(clientX, clientY){
+    const rect = quoteSelectImgWrap.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+  // Nearest word to a point — always returns one (never "no match"), so a
+  // touch that lands between lines/words still snaps to something
+  // sensible instead of doing nothing.
+  function nearestWordIndex(x, y){
+    let best = -1, bestDist = Infinity;
+    for(let i = 0; i < quoteWords.length; i++){
+      const b = scaledBbox(quoteWords[i]);
+      const cx = Math.max(b.left, Math.min(x, b.right));
+      const cy = Math.max(b.top, Math.min(y, b.bottom));
+      const dist = Math.hypot(x - cx, y - cy);
+      if(dist < bestDist){ bestDist = dist; best = i; }
+    }
+    return best;
+  }
+
+  function renderQuoteSelection(){
+    quoteHighlightLayer.innerHTML = "";
+    if(quoteStartIdx == null || quoteEndIdx == null || !quoteSourceCanvas){
+      quoteHandleStart.hidden = true;
+      quoteHandleEnd.hidden = true;
+      quoteSelectActions.hidden = true;
+      return;
+    }
+    const lo = Math.min(quoteStartIdx, quoteEndIdx);
+    const hi = Math.max(quoteStartIdx, quoteEndIdx);
+    const selected = quoteWords.slice(lo, hi + 1);
+
+    // One highlight rect per covered line (spanning its leftmost to
+    // rightmost selected word), not one per word — reads as a single
+    // continuous highlight instead of separate blocks with gaps.
+    const frag = document.createDocumentFragment();
+    let i = 0;
+    while(i < selected.length){
+      let j = i;
+      let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+      while(j < selected.length && selected[j].lineIdx === selected[i].lineIdx){
+        const b = scaledBbox(selected[j]);
+        left = Math.min(left, b.left); right = Math.max(right, b.right);
+        top = Math.min(top, b.top); bottom = Math.max(bottom, b.bottom);
+        j++;
+      }
+      const rect = document.createElement("div");
+      rect.className = "quote-highlight-rect";
+      rect.style.left = left + "px";
+      rect.style.top = top + "px";
+      rect.style.width = (right - left) + "px";
+      rect.style.height = (bottom - top) + "px";
+      frag.appendChild(rect);
+      i = j;
+    }
+    quoteHighlightLayer.appendChild(frag);
+
+    // Handles: one at the selection's reading-order start (right edge of
+    // the first word — Arabic reads right-to-left), one at its end (left
+    // edge of the last word).
+    const dispW = quoteSourceCanvas.clientWidth;
+    const sb = scaledBbox(quoteWords[lo]), eb = scaledBbox(quoteWords[hi]);
+    quoteHandleStart.style.setProperty("--stem-h", sb.height + "px");
+    quoteHandleStart.style.right = (dispW - sb.right) + "px";
+    quoteHandleStart.style.top = sb.top + "px";
+    quoteHandleStart.hidden = false;
+    quoteHandleEnd.style.setProperty("--stem-h", eb.height + "px");
+    quoteHandleEnd.style.right = (dispW - eb.left) + "px";
+    quoteHandleEnd.style.top = eb.top + "px";
+    quoteHandleEnd.hidden = false;
+
+    quoteSelectActions.hidden = false;
+  }
+
+  function hitTestHandle(x, y){
+    const r = 22; // generous touch target, bigger than the visible dot
+    const within = (el)=>{
+      if(el.hidden) return false;
+      const rect = el.getBoundingClientRect();
+      const wrapRect = quoteSelectImgWrap.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2 - wrapRect.left;
+      const cy = rect.top + rect.height / 2 - wrapRect.top;
+      return Math.hypot(x - cx, y - cy) <= r;
+    };
+    if(within(quoteHandleStart)) return "start";
+    if(within(quoteHandleEnd)) return "end";
+    return null;
+  }
+
+  quoteSelectImgWrap.addEventListener("pointerdown", (e)=>{
+    if(!quoteWords.length) return;
+    const p = clientToWrapPoint(e.clientX, e.clientY);
+    const handle = hitTestHandle(p.x, p.y);
+    if(handle){
+      quoteDragMode = handle;
+    } else {
+      const idx = nearestWordIndex(p.x, p.y);
+      if(idx < 0) return;
+      quoteDragMode = "new";
+      quoteStartIdx = idx;
+      quoteEndIdx = idx;
+      renderQuoteSelection();
+    }
+    try{ quoteSelectImgWrap.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  quoteSelectImgWrap.addEventListener("pointermove", (e)=>{
+    if(!quoteDragMode) return;
+    const p = clientToWrapPoint(e.clientX, e.clientY);
+    const idx = nearestWordIndex(p.x, p.y);
+    if(idx < 0) return;
+    if(quoteDragMode === "start") quoteStartIdx = idx;
+    else quoteEndIdx = idx; // "new" or "end"
+    renderQuoteSelection();
+    e.preventDefault();
+  });
+  function endQuoteDrag(){ quoteDragMode = null; }
+  quoteSelectImgWrap.addEventListener("pointerup", endQuoteDrag);
+  quoteSelectImgWrap.addEventListener("pointercancel", endQuoteDrag);
 
   async function openQuoteSelect(){
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
     quotePageNum = currentPageNum;
     quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
-    quoteTextLayer.innerHTML = "";
+    quoteWords = [];
+    quoteStartIdx = null; quoteEndIdx = null; quoteDragMode = null;
+    quoteHighlightLayer.innerHTML = "";
+    quoteHandleStart.hidden = true;
+    quoteHandleEnd.hidden = true;
     quoteSelectActions.hidden = true;
     quoteSourceCanvas = null;
     quoteSelectHint.textContent = "جارٍ تجهيز الصفحة…";
@@ -1567,12 +1716,10 @@
     try{
       const canvas = await renderQuoteSourceCanvas(quotePageNum);
       quoteSourceCanvas = canvas;
-      quoteSelectImgWrap.insertBefore(canvas, quoteTextLayer);
+      quoteSelectImgWrap.insertBefore(canvas, quoteHighlightLayer);
       fitQuoteCanvas();
-      const lines = await getQuoteLines(quotePageNum, canvas);
-      buildQuoteTextLayer(lines);
+      quoteWords = await getQuoteWords(quotePageNum, canvas);
       quoteSelectHint.textContent = "اسحب لتحديد النص، ثم اضغط اقتباس المحدد";
-      quoteSelectActions.hidden = false;
     }catch(err){
       console.error("quote page preparation failed", err);
       showToast("تعذر تجهيز الصفحة للتحديد");
@@ -1582,20 +1729,23 @@
   function closeQuoteSelect(){
     quoteSelectOverlay.classList.remove("open");
     quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
-    quoteTextLayer.innerHTML = "";
+    quoteHighlightLayer.innerHTML = "";
+    quoteHandleStart.hidden = true;
+    quoteHandleEnd.hidden = true;
     quoteSourceCanvas = null;
+    quoteWords = [];
+    quoteStartIdx = null; quoteEndIdx = null; quoteDragMode = null;
     quoteSelectActions.hidden = true;
-    const sel = window.getSelection();
-    if(sel) sel.removeAllRanges();
   }
   quoteBtn.addEventListener("click", openQuoteSelect);
   quoteSelectCancelBtn.addEventListener("click", closeQuoteSelect);
 
   quoteSelectConfirmBtn.addEventListener("click", ()=>{
-    const sel = window.getSelection();
-    const text = sel ? sel.toString().trim() : "";
+    if(quoteStartIdx == null || quoteEndIdx == null){ showToast("حدد نصًا أولًا"); return; }
+    const lo = Math.min(quoteStartIdx, quoteEndIdx);
+    const hi = Math.max(quoteStartIdx, quoteEndIdx);
+    const text = wordsToText(quoteWords.slice(lo, hi + 1));
     if(!text){ showToast("حدد نصًا أولًا"); return; }
-    sel.removeAllRanges();
     openQuoteCompose(text);
   });
 
