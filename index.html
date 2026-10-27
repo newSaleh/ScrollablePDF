@@ -359,6 +359,62 @@
   }
   .library-delete-btn:active{ background:var(--border); }
 
+  /* ---------- Quote selection / composer / list ---------- */
+  /* Full-screen (not the small centered card other modals use) — needs
+     room to show a whole page image plus a scrollable area to draw the
+     selection box in. */
+  .quote-select-overlay{ padding:0; align-items:stretch; }
+  .quote-select-card{
+    background:var(--bg); width:100%; height:100%;
+    display:flex; flex-direction:column;
+    padding-top:calc(14px + var(--safe-t)); padding-bottom:calc(14px + var(--safe-b));
+    padding-left:calc(14px + var(--safe-l)); padding-right:calc(14px + var(--safe-r));
+  }
+  .quote-select-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .quote-select-head h3{ margin:0; font-size:16px; }
+  .quote-select-hint{ font-size:12.5px; color:var(--muted); margin:8px 0 12px; text-align:center; }
+  /* The whole page is scaled to fit here at once (never scrolled) —
+     touch-action:none below needs a finger drag to always mean "draw a
+     selection box", never a scroll, and the only way to make both true
+     at once is to never need scrolling in the first place. */
+  .quote-select-scroll{
+    flex:1 1 auto; overflow:hidden; border:1px solid var(--border); border-radius:10px;
+    background:#fff; display:flex; align-items:center; justify-content:center;
+  }
+  .quote-select-imgwrap{ position:relative; touch-action:none; }
+  .quote-select-imgwrap canvas{ display:block; } /* width/height set inline by JS to the fitted size */
+  .quote-selbox{
+    position:absolute; border:2px solid var(--accent); background:rgba(169,103,63,.22);
+    pointer-events:none;
+  }
+  .quote-selbox[hidden]{ display:none; }
+  .quote-select-actions{ display:flex; gap:8px; margin-top:12px; }
+  .quote-select-actions .tbtn{ flex:1; font-size:14px; padding:12px; }
+  .quote-select-actions[hidden]{ display:none; }
+
+  .quote-compose-card{ width:min(420px, 100%); }
+  .quote-field-label{ display:block; font-size:12px; color:var(--muted); margin:12px 0 4px; font-weight:600; }
+  .quote-field-label:first-of-type{ margin-top:4px; }
+  .quote-textarea{
+    width:100%; padding:10px; border:1px solid var(--border); border-radius:10px;
+    font-size:14.5px; font-family:inherit; background:var(--bg); color:var(--text);
+    resize:vertical; line-height:1.6;
+  }
+
+  .quote-item{
+    display:flex; flex-direction:column; gap:6px;
+    border:1px solid var(--border); border-radius:10px; padding:10px;
+  }
+  .quote-item-text{ font-size:14px; color:var(--text); line-height:1.6; white-space:pre-wrap; }
+  .quote-item-comment{ font-size:12.5px; color:var(--accent); line-height:1.5; }
+  .quote-item-meta{ font-size:11px; color:var(--muted); }
+  .quote-item-actions{ display:flex; gap:6px; margin-top:2px; }
+  .quote-item-actions button{
+    flex:1; appearance:none; border:1px solid var(--border); background:var(--bg); color:var(--text);
+    border-radius:8px; padding:7px; font-size:12px; cursor:pointer; touch-action:manipulation;
+  }
+  .quote-item-actions button:active{ background:var(--border); }
+
   input[type=file]{ display:none; }
 </style>
 </head>
@@ -374,6 +430,7 @@
     <div class="spacer"></div>
     <button class="tbtn" id="playBtn" title="تمرير تلقائي"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg></button>
     <button class="tbtn" id="fsBtn" title="ملء الشاشة"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>
+    <button class="tbtn" id="quoteBtn" title="اقتباس نص"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M9.5 7C6.5 7 4.5 9.2 4.5 12.3c0 2.6 1.7 4.4 4 4.4.2 0 .4 0 .6-.1-.3 1.2-1.2 2.1-2.6 2.6l.6 1.3c2.6-.8 4.4-2.8 4.4-5.7V11c0-2.3-1-4-2-4zm9 0c-3 0-5 2.2-5 5.3 0 2.6 1.7 4.4 4 4.4.2 0 .4 0 .6-.1-.3 1.2-1.2 2.1-2.6 2.6l.6 1.3c2.6-.8 4.4-2.8 4.4-5.7V11c0-2.3-1-4-2-4z"/></svg></button>
     <button class="tbtn" id="settingsBtn" title="الإعدادات"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
     <div id="settingsPanel">
@@ -430,6 +487,13 @@
       <div class="field">
         <button class="link-btn" id="libraryBtn" type="button">📚 الكتب المحفوظة</button>
         <div class="hint" style="text-align:center;">كل الكتب التي رفعتها محفوظة على هذا الجهاز؛ افتح أو احذف أي منها</div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <button class="link-btn" id="quotesBtn" type="button">📝 الاقتباسات المحفوظة</button>
+        <div class="hint" style="text-align:center;">اضغط زر الاقتباس (") أعلى الشاشة لتحديد نص من أي صفحة وحفظه هنا</div>
       </div>
 
       <hr class="sep">
@@ -495,12 +559,74 @@
       </div>
     </div>
   </div>
+
+  <div id="quoteSelectOverlay" class="modal-overlay quote-select-overlay">
+    <div class="quote-select-card">
+      <div class="quote-select-head">
+        <h3>تحديد نص للاقتباس</h3>
+        <button class="tbtn small" id="quoteSelectCancelBtn" type="button">إلغاء</button>
+      </div>
+      <div class="quote-select-hint">ارسم مربعًا حول النص الذي تريد اقتباسه من الصفحة</div>
+      <div class="quote-select-scroll" id="quoteSelectScroll">
+        <div class="quote-select-imgwrap" id="quoteSelectImgWrap">
+          <div class="quote-selbox" id="quoteSelBox" hidden></div>
+        </div>
+      </div>
+      <div class="quote-select-actions" id="quoteSelectActions" hidden>
+        <button class="tbtn" id="quoteSelectRedoBtn" type="button">إعادة التحديد</button>
+        <button class="tbtn accent" id="quoteSelectConfirmBtn" type="button">اقتباس ◀</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="quoteComposeOverlay" class="modal-overlay">
+    <div class="modal-card quote-compose-card">
+      <h3>الاقتباس</h3>
+      <div class="modal-hint" id="quoteComposeSource"></div>
+      <label class="quote-field-label" for="quoteTextInput">النص</label>
+      <textarea id="quoteTextInput" class="quote-textarea" rows="4"></textarea>
+      <label class="quote-field-label" for="quoteCommentInput">تعليقك (اختياري)</label>
+      <textarea id="quoteCommentInput" class="quote-textarea" rows="2" placeholder="أضف تعليقًا إن أردت..."></textarea>
+      <div class="btnrow">
+        <button class="tbtn" id="quoteComposeCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="quoteComposeSaveBtn" type="button">حفظ</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="quotesListOverlay" class="modal-overlay">
+    <div class="modal-card library-card">
+      <h3>📝 الاقتباسات المحفوظة</h3>
+      <div class="library-list" id="quotesList"></div>
+      <div class="modal-hint" id="quotesEmptyHint" hidden>لا توجد اقتباسات محفوظة بعد</div>
+      <div class="btnrow">
+        <button class="tbtn" id="quotesCloseBtn" type="button">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="quoteDeleteOverlay" class="modal-overlay">
+    <div class="modal-card">
+      <h3>حذف الاقتباس؟</h3>
+      <div class="modal-hint" id="quoteDeleteHint"></div>
+      <div class="btnrow">
+        <button class="tbtn" id="quoteDeleteCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="quoteDeleteConfirmBtn" type="button">حذف</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Self-hosted (not CDN): this is the one library the app cannot work
      without, so it must be available offline from the very first load
      that installed the service worker below. -->
 <script src="vendor/pdf.min.js"></script>
+<!-- Also self-hosted: OCR for the quote feature below, run only on the
+     small region a reader selects (not whole pages), so it stays small
+     and fast. Loaded up front like pdf.js itself (it's tiny — the heavy
+     core/language files it drives are fetched lazily, only the first
+     time a quote is actually extracted). -->
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <script>
 (function(){
   "use strict";
@@ -513,7 +639,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-24.9";
+  const BUILD_VERSION = "2026-10-27.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -579,6 +705,30 @@
   const deleteHint = $("deleteHint");
   const deleteCancelBtn = $("deleteCancelBtn");
   const deleteConfirmBtn = $("deleteConfirmBtn");
+  const quoteBtn = $("quoteBtn");
+  const quoteSelectOverlay = $("quoteSelectOverlay");
+  const quoteSelectCancelBtn = $("quoteSelectCancelBtn");
+  const quoteSelectScroll = $("quoteSelectScroll");
+  const quoteSelectImgWrap = $("quoteSelectImgWrap");
+  const quoteSelBox = $("quoteSelBox");
+  const quoteSelectActions = $("quoteSelectActions");
+  const quoteSelectRedoBtn = $("quoteSelectRedoBtn");
+  const quoteSelectConfirmBtn = $("quoteSelectConfirmBtn");
+  const quoteComposeOverlay = $("quoteComposeOverlay");
+  const quoteComposeSource = $("quoteComposeSource");
+  const quoteTextInput = $("quoteTextInput");
+  const quoteCommentInput = $("quoteCommentInput");
+  const quoteComposeCancelBtn = $("quoteComposeCancelBtn");
+  const quoteComposeSaveBtn = $("quoteComposeSaveBtn");
+  const quotesBtn = $("quotesBtn");
+  const quotesListOverlay = $("quotesListOverlay");
+  const quotesList = $("quotesList");
+  const quotesEmptyHint = $("quotesEmptyHint");
+  const quotesCloseBtn = $("quotesCloseBtn");
+  const quoteDeleteOverlay = $("quoteDeleteOverlay");
+  const quoteDeleteHint = $("quoteDeleteHint");
+  const quoteDeleteCancelBtn = $("quoteDeleteCancelBtn");
+  const quoteDeleteConfirmBtn = $("quoteDeleteConfirmBtn");
 
   // ---------- State ----------
   let pdfDoc = null;
@@ -627,13 +777,14 @@
   // has to load every book's full PDF bytes into memory. "bookcontent"
   // holds those bytes, fetched only when a specific book is opened.
   // "meta" holds just the last-read page per book, written often while
-  // scrolling, so it's kept separate and small too.
+  // scrolling, so it's kept separate and small too. "quotes" holds saved
+  // text quotes, each tagged with the book/page it came from.
   const DB_NAME = "scrollablepdf-db";
-  // Stays at 3 (not rolled back to 2) even though the "pagetext" store this
-  // version used to create is gone now — anyone who already opened the DB
-  // at version 3 would hit a VersionError if this went backwards. A fresh
-  // visitor just never gets that store created below, which is fine.
-  const DB_VERSION = 3;
+  // Stays at 3→4, never rolled back — a previously-shipped "pagetext"
+  // store (DB_VERSION 3, since removed) left some clients already at
+  // version 3; opening at a lower version than a client already reached
+  // throws a VersionError.
+  const DB_VERSION = 4;
   let dbPromise = null;
   function openDB(){
     if(dbPromise) return dbPromise;
@@ -644,6 +795,7 @@
         const db = req.result;
         if(!db.objectStoreNames.contains("bookinfo")) db.createObjectStore("bookinfo", { keyPath:"id" });
         if(!db.objectStoreNames.contains("bookcontent")) db.createObjectStore("bookcontent", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("quotes")) db.createObjectStore("quotes", { keyPath:"id" });
         if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath:"id" });
       };
       req.onsuccess = ()=> resolve(req.result);
@@ -694,6 +846,19 @@
   function generateBookId(){
     return "b" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   }
+  function generateQuoteId(){
+    return "q" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  async function saveQuote(q){
+    try{ await idbPut("quotes", q); }
+    catch(e){ console.error("saveQuote failed", e); showToast("تعذر حفظ الاقتباس"); }
+  }
+  // Most-recent first, same convention as listBooks().
+  async function listQuotes(){
+    const all = await idbGetAll("quotes");
+    return all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }
+  async function deleteQuote(id){ await idbDelete("quotes", id); }
   async function saveBookData(id, name, size, data){
     try{
       await idbPut("bookinfo", { id, name, size, savedAt: Date.now() });
@@ -1261,6 +1426,333 @@
     }
     showToast("تم حذف الكتاب");
     await refreshLibraryList();
+  });
+
+  // ---------- Quote extraction (select a region → OCR just that crop) ----------
+  const QUOTE_SRC_WIDTH = 1400; // px — internal render resolution, independent of display size
+  const QUOTE_OCR_WIDTH = 900;  // px — upscale target for the cropped region before OCR
+  let quoteSourceCanvas = null; // the full page, rendered once per selection session
+  let quotePageNum = null;      // frozen at the moment the quote button was tapped
+  let quoteDragging = false;
+  let quoteDragStart = null;    // {x,y} in CSS px, relative to quoteSelectImgWrap
+  let quoteSelRect = null;      // finalized {left,top,width,height} in CSS px once a drag ends
+  let ocrWorkerPromise = null;  // lazily created, reused for the whole session
+
+  function ensureOcrWorker(){
+    if(!ocrWorkerPromise){
+      ocrWorkerPromise = Tesseract.createWorker("ara", Tesseract.OEM.LSTM_ONLY, {
+        workerPath: "vendor/tesseract/worker.min.js",
+        corePath: "vendor/tesseract/tesseract-core-simd-lstm.wasm.js",
+        langPath: "vendor/tesseract/lang-data",
+        workerBlobURL: false
+      });
+    }
+    return ocrWorkerPromise;
+  }
+
+  async function renderQuoteSourceCanvas(n){
+    const page = await getPageCached(n);
+    const natural = page.getViewport({ scale: 1 });
+    const scale = QUOTE_SRC_WIDTH / natural.width;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(viewport.width);
+    canvas.height = Math.round(viewport.height);
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas;
+  }
+
+  // Sizes the rendered page (and, via the centering flex on its parent,
+  // positions it) so the whole thing fits inside the available area at
+  // once — see the .quote-select-scroll CSS comment for why that matters.
+  function fitQuoteCanvas(){
+    if(!quoteSourceCanvas) return;
+    const availW = quoteSelectScroll.clientWidth - 4;
+    const availH = quoteSelectScroll.clientHeight - 4;
+    if(availW <= 0 || availH <= 0) return;
+    const scale = Math.min(availW / quoteSourceCanvas.width, availH / quoteSourceCanvas.height);
+    const dispW = Math.max(1, Math.round(quoteSourceCanvas.width * scale));
+    const dispH = Math.max(1, Math.round(quoteSourceCanvas.height * scale));
+    quoteSourceCanvas.style.width = dispW + "px";
+    quoteSourceCanvas.style.height = dispH + "px";
+    quoteSelectImgWrap.style.width = dispW + "px";
+    quoteSelectImgWrap.style.height = dispH + "px";
+  }
+  window.addEventListener("resize", ()=>{
+    if(quoteSelectOverlay.classList.contains("open")) fitQuoteCanvas();
+  });
+
+  async function openQuoteSelect(){
+    if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    quotePageNum = currentPageNum;
+    quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    quoteSelBox.hidden = true;
+    quoteSelectActions.hidden = true;
+    quoteSelRect = null;
+    quoteSourceCanvas = null;
+    quoteSelectOverlay.classList.add("open");
+    try{
+      const canvas = await renderQuoteSourceCanvas(quotePageNum);
+      quoteSourceCanvas = canvas;
+      quoteSelectImgWrap.insertBefore(canvas, quoteSelBox);
+      fitQuoteCanvas();
+    }catch(err){
+      console.error("quote source render failed", err);
+      showToast("تعذر تحميل الصفحة");
+      closeQuoteSelect();
+    }
+  }
+  function closeQuoteSelect(){
+    quoteSelectOverlay.classList.remove("open");
+    quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    quoteSourceCanvas = null;
+    quoteSelBox.hidden = true;
+    quoteSelectActions.hidden = true;
+    quoteSelRect = null;
+    quoteDragging = false;
+  }
+  quoteBtn.addEventListener("click", openQuoteSelect);
+  quoteSelectCancelBtn.addEventListener("click", closeQuoteSelect);
+
+  function clientToImgWrapPoint(clientX, clientY){
+    const rect = quoteSelectImgWrap.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(clientX - rect.left, rect.width)),
+      y: Math.max(0, Math.min(clientY - rect.top, rect.height))
+    };
+  }
+  quoteSelectImgWrap.addEventListener("pointerdown", (e)=>{
+    if(!quoteSourceCanvas) return;
+    quoteDragging = true;
+    quoteDragStart = clientToImgWrapPoint(e.clientX, e.clientY);
+    quoteSelBox.hidden = false;
+    quoteSelectActions.hidden = true;
+    quoteSelBox.style.left = quoteDragStart.x + "px";
+    quoteSelBox.style.top = quoteDragStart.y + "px";
+    quoteSelBox.style.width = "0px";
+    quoteSelBox.style.height = "0px";
+    try{ quoteSelectImgWrap.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  quoteSelectImgWrap.addEventListener("pointermove", (e)=>{
+    if(!quoteDragging) return;
+    const p = clientToImgWrapPoint(e.clientX, e.clientY);
+    const left = Math.min(quoteDragStart.x, p.x);
+    const top = Math.min(quoteDragStart.y, p.y);
+    const width = Math.abs(p.x - quoteDragStart.x);
+    const height = Math.abs(p.y - quoteDragStart.y);
+    quoteSelBox.style.left = left + "px";
+    quoteSelBox.style.top = top + "px";
+    quoteSelBox.style.width = width + "px";
+    quoteSelBox.style.height = height + "px";
+    e.preventDefault();
+  });
+  function finishQuoteDrag(){
+    if(!quoteDragging) return;
+    quoteDragging = false;
+    const width = parseFloat(quoteSelBox.style.width) || 0;
+    const height = parseFloat(quoteSelBox.style.height) || 0;
+    if(width < 10 || height < 10){
+      // Too small to be a deliberate selection (a stray tap) — drop it.
+      quoteSelBox.hidden = true;
+      quoteSelRect = null;
+      return;
+    }
+    quoteSelRect = {
+      left: parseFloat(quoteSelBox.style.left) || 0,
+      top: parseFloat(quoteSelBox.style.top) || 0,
+      width, height
+    };
+    quoteSelectActions.hidden = false;
+  }
+  quoteSelectImgWrap.addEventListener("pointerup", finishQuoteDrag);
+  quoteSelectImgWrap.addEventListener("pointercancel", finishQuoteDrag);
+
+  quoteSelectRedoBtn.addEventListener("click", ()=>{
+    quoteSelBox.hidden = true;
+    quoteSelectActions.hidden = true;
+    quoteSelRect = null;
+  });
+
+  quoteSelectConfirmBtn.addEventListener("click", async ()=>{
+    if(!quoteSelRect || !quoteSourceCanvas) return;
+    quoteSelectConfirmBtn.disabled = true;
+    const originalLabel = quoteSelectConfirmBtn.textContent;
+    quoteSelectConfirmBtn.textContent = "⏳ جارٍ استخراج النص…";
+    try{
+      // Map the selection from displayed CSS pixels back to the source
+      // canvas's own (higher) resolution.
+      const ratioX = quoteSourceCanvas.width / quoteSourceCanvas.clientWidth;
+      const ratioY = quoteSourceCanvas.height / quoteSourceCanvas.clientHeight;
+      const sx = Math.round(quoteSelRect.left * ratioX);
+      const sy = Math.round(quoteSelRect.top * ratioY);
+      const sw = Math.round(quoteSelRect.width * ratioX);
+      const sh = Math.round(quoteSelRect.height * ratioY);
+
+      // Upscale small selections before OCR — recognition accuracy drops
+      // sharply on low-resolution crops, and a selected line or two is
+      // often much narrower than a full page.
+      const upscale = Math.max(1, QUOTE_OCR_WIDTH / sw);
+      const crop = document.createElement("canvas");
+      crop.width = Math.max(1, Math.round(sw * upscale));
+      crop.height = Math.max(1, Math.round(sh * upscale));
+      const cctx = crop.getContext("2d");
+      cctx.imageSmoothingQuality = "high";
+      cctx.drawImage(quoteSourceCanvas, sx, sy, sw, sh, 0, 0, crop.width, crop.height);
+
+      const worker = await ensureOcrWorker();
+      const { data } = await worker.recognize(crop);
+      crop.width = 0; crop.height = 0;
+
+      openQuoteCompose((data.text || "").trim());
+    }catch(err){
+      console.error("quote OCR failed", err);
+      showToast("تعذر استخراج النص من التحديد — يمكنك كتابته يدويًا");
+      openQuoteCompose("");
+    }finally{
+      quoteSelectConfirmBtn.disabled = false;
+      quoteSelectConfirmBtn.textContent = originalLabel;
+    }
+  });
+
+  function openQuoteCompose(initialText){
+    closeQuoteSelect();
+    quoteComposeSource.textContent = (currentBookName || "كتاب") + " — صفحة " + quotePageNum;
+    quoteTextInput.value = initialText || "";
+    quoteCommentInput.value = "";
+    quoteComposeOverlay.classList.add("open");
+    quoteTextInput.focus();
+  }
+  function closeQuoteCompose(){ quoteComposeOverlay.classList.remove("open"); }
+  quoteComposeCancelBtn.addEventListener("click", closeQuoteCompose);
+  quoteComposeOverlay.addEventListener("click", (e)=>{ if(e.target === quoteComposeOverlay) closeQuoteCompose(); });
+  quoteComposeSaveBtn.addEventListener("click", async ()=>{
+    const text = quoteTextInput.value.trim();
+    if(!text){ showToast("لا يوجد نص للاقتباس"); return; }
+    const comment = quoteCommentInput.value.trim();
+    await saveQuote({
+      id: generateQuoteId(),
+      bookId: currentBookId,
+      bookName: currentBookName,
+      pageNum: quotePageNum,
+      text, comment,
+      createdAt: Date.now()
+    });
+    closeQuoteCompose();
+    showToast("تم حفظ الاقتباس");
+  });
+
+  // ---------- Saved quotes list ----------
+  function renderQuoteItem(q){
+    const item = document.createElement("div");
+    item.className = "quote-item";
+
+    const textEl = document.createElement("div");
+    textEl.className = "quote-item-text";
+    textEl.textContent = q.text;
+    item.appendChild(textEl);
+
+    if(q.comment){
+      const commentEl = document.createElement("div");
+      commentEl.className = "quote-item-comment";
+      commentEl.textContent = "💬 " + q.comment;
+      item.appendChild(commentEl);
+    }
+
+    const metaEl = document.createElement("div");
+    metaEl.className = "quote-item-meta";
+    metaEl.textContent = (q.bookName || "كتاب") + " · صفحة " + q.pageNum;
+    item.appendChild(metaEl);
+
+    const actions = document.createElement("div");
+    actions.className = "quote-item-actions";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.textContent = "📋 نسخ";
+    copyBtn.addEventListener("click", ()=> copyQuoteText(q.text));
+    actions.appendChild(copyBtn);
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.textContent = "📄 فتح الصفحة";
+    openBtn.addEventListener("click", ()=> openQuoteSourcePage(q));
+    actions.appendChild(openBtn);
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.textContent = "🗑️ حذف";
+    delBtn.addEventListener("click", ()=> openQuoteDeleteConfirm(q));
+    actions.appendChild(delBtn);
+
+    item.appendChild(actions);
+    return item;
+  }
+  async function refreshQuotesList(){
+    const quotes = await listQuotes();
+    quotesList.innerHTML = "";
+    quotesEmptyHint.hidden = quotes.length > 0;
+    quotes.forEach(q => quotesList.appendChild(renderQuoteItem(q)));
+  }
+  async function openQuotesList(){
+    settingsPanel.classList.remove("open");
+    await refreshQuotesList();
+    quotesListOverlay.classList.add("open");
+  }
+  function closeQuotesList(){ quotesListOverlay.classList.remove("open"); }
+  quotesBtn.addEventListener("click", openQuotesList);
+  quotesCloseBtn.addEventListener("click", closeQuotesList);
+  quotesListOverlay.addEventListener("click", (e)=>{ if(e.target === quotesListOverlay) closeQuotesList(); });
+
+  async function copyQuoteText(text){
+    try{
+      await navigator.clipboard.writeText(text);
+      showToast("تم نسخ الاقتباس");
+    }catch(err){
+      console.error("copy failed", err);
+      showToast("تعذر النسخ — قد يحتاج المتصفح إذنًا");
+    }
+  }
+
+  async function openQuoteSourcePage(q){
+    if(!q.bookId){ showToast("لا يوجد كتاب مرتبط بهذا الاقتباس"); return; }
+    closeQuotesList();
+    if(q.bookId === currentBookId && pdfDoc){
+      scrollToPage(q.pageNum);
+      updatePageIndicator(q.pageNum);
+      return;
+    }
+    showToast("جارٍ فتح الكتاب…", 1200);
+    const rec = await loadBookData(q.bookId);
+    if(!rec || !rec.data){
+      showToast("تعذر العثور على هذا الكتاب — قد يكون محذوفًا");
+      return;
+    }
+    await openFromBytes(rec.data, rec.name, { persist:false, id: q.bookId, gotoPage: q.pageNum });
+  }
+
+  let pendingDeleteQuoteId = null;
+  function openQuoteDeleteConfirm(q){
+    pendingDeleteQuoteId = q.id;
+    quoteDeleteHint.textContent = "سيُحذف هذا الاقتباس نهائيًا.";
+    quoteDeleteOverlay.classList.add("open");
+  }
+  function closeQuoteDeleteConfirm(){
+    quoteDeleteOverlay.classList.remove("open");
+    pendingDeleteQuoteId = null;
+  }
+  quoteDeleteCancelBtn.addEventListener("click", closeQuoteDeleteConfirm);
+  quoteDeleteOverlay.addEventListener("click", (e)=>{ if(e.target === quoteDeleteOverlay) closeQuoteDeleteConfirm(); });
+  quoteDeleteConfirmBtn.addEventListener("click", async ()=>{
+    const id = pendingDeleteQuoteId;
+    if(!id) return;
+    closeQuoteDeleteConfirm();
+    await deleteQuote(id);
+    showToast("تم حذف الاقتباس");
+    await refreshQuotesList();
   });
 
   // ---------- Night mode ----------
