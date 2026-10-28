@@ -659,7 +659,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-27.3";
+  const BUILD_VERSION = "2026-10-28.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -1199,6 +1199,7 @@
     pageIndicator.textContent = n + " / " + numPages + " (" + percent + "%)";
     updateEtaBadge();
     scheduleMetaSave();
+    scheduleQuotePrefetch(n);
   }
 
   async function renderPage(n, wrap){
@@ -1532,6 +1533,48 @@
     return words;
   }
 
+  // ---------- Background pre-OCR near the current page ----------
+  // Only starts once the quote feature has actually been used this
+  // session (quoteFeatureUsed below) — otherwise every reader would pay
+  // for Tesseract's ~5MB download and ongoing CPU/battery use even if
+  // they never quote anything. Once it has, nearby pages get OCR'd
+  // quietly while reading so opening the quote screen on one of them is
+  // instant instead of waiting a couple of seconds right then.
+  let quoteFeatureUsed = loadSetting("quoteFeatureUsed", false);
+  const QUOTE_PREFETCH_RADIUS = 2; // pages before/after the current one
+  let quotePrefetchTimer = null;
+  let quotePrefetchBusy = false;
+
+  function scheduleQuotePrefetch(centerPage){
+    if(!quoteFeatureUsed || !pdfDoc) return;
+    clearTimeout(quotePrefetchTimer);
+    // Debounced: fast scrolling/autoplay only triggers this once it
+    // settles on a page, not on every page crossed along the way.
+    quotePrefetchTimer = setTimeout(()=> runQuotePrefetch(centerPage), 1200);
+  }
+  async function runQuotePrefetch(centerPage){
+    if(quotePrefetchBusy || !pdfDoc) return;
+    quotePrefetchBusy = true;
+    try{
+      const from = Math.max(rangeStart, centerPage - QUOTE_PREFETCH_RADIUS);
+      const to = Math.min(rangeEnd, centerPage + QUOTE_PREFETCH_RADIUS);
+      for(let n = from; n <= to; n++){
+        // Stop if the book closed, or yield entirely once the reader
+        // opens the quote screen themselves — that OCR call is
+        // foreground and time-sensitive, this one isn't.
+        if(!pdfDoc || quoteSelectOverlay.classList.contains("open")) break;
+        if(quoteWordCache.has(n)) continue;
+        try{
+          const canvas = await renderQuoteSourceCanvas(n);
+          await getQuoteWords(n, canvas);
+          canvas.width = 0; canvas.height = 0;
+        }catch(e){ console.error("quote prefetch failed", n, e); }
+      }
+    } finally {
+      quotePrefetchBusy = false;
+    }
+  }
+
   function wordsToText(words){
     if(!words.length) return "";
     const lineGroups = [];
@@ -1702,6 +1745,11 @@
 
   async function openQuoteSelect(){
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    if(!quoteFeatureUsed){
+      quoteFeatureUsed = true;
+      saveSetting("quoteFeatureUsed", true);
+      scheduleQuotePrefetch(currentPageNum); // start keeping nearby pages ready from now on
+    }
     quotePageNum = currentPageNum;
     quoteSelectImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
     quoteWords = [];
