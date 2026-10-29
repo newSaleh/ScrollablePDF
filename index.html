@@ -660,6 +660,13 @@
   <div id="epubSetupOverlay" class="modal-overlay">
     <div class="modal-card">
       <h3>تحويل إلى EPUB</h3>
+      <div id="epubResumeBanner" hidden>
+        <div class="modal-hint" id="epubResumeInfo"></div>
+        <div class="btnrow">
+          <button class="tbtn" id="epubResumeDiscardBtn" type="button">تجاهل وابدأ جديدًا</button>
+          <button class="tbtn accent" id="epubResumeBtn" type="button">استكمال من حيث توقف</button>
+        </div>
+      </div>
       <div id="epubSetupForm">
         <div class="field">
           <label>من صفحة</label>
@@ -677,7 +684,7 @@
       <div id="epubProgressWrap" hidden>
         <div class="modal-hint" id="epubProgressText">جارٍ التحويل…</div>
       </div>
-      <div class="btnrow">
+      <div class="btnrow" id="epubSetupBtnrow">
         <button class="tbtn" id="epubSetupCancelBtn" type="button">إلغاء</button>
         <button class="tbtn accent" id="epubStartBtn" type="button" disabled>بدء التحويل</button>
       </div>
@@ -731,7 +738,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.2";
+  const BUILD_VERSION = "2026-10-29.3";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -834,6 +841,11 @@
   const epubProgressText = $("epubProgressText");
   const epubSetupCancelBtn = $("epubSetupCancelBtn");
   const epubStartBtn = $("epubStartBtn");
+  const epubSetupBtnrow = $("epubSetupBtnrow");
+  const epubResumeBanner = $("epubResumeBanner");
+  const epubResumeInfo = $("epubResumeInfo");
+  const epubResumeDiscardBtn = $("epubResumeDiscardBtn");
+  const epubResumeBtn = $("epubResumeBtn");
   const epubCropOverlay = $("epubCropOverlay");
   const epubCropCancelBtn = $("epubCropCancelBtn");
   const epubCropScroll = $("epubCropScroll");
@@ -895,13 +907,18 @@
   // holds those bytes, fetched only when a specific book is opened.
   // "meta" holds just the last-read page per book, written often while
   // scrolling, so it's kept separate and small too. "quotes" holds saved
-  // text quotes, each tagged with the book/page it came from.
+  // text quotes, each tagged with the book/page it came from. "epubjobs"
+  // holds in-progress EPUB conversions (one per book) so an interrupted
+  // conversion (closed tab, backgrounded on iOS, etc.) can pick up where
+  // it left off instead of restarting. "epubbooks"/"epubbookcontent"/
+  // "epubmeta" mirror "bookinfo"/"bookcontent"/"meta" but for saved EPUB
+  // files opened in the in-app EPUB reader.
   const DB_NAME = "scrollablepdf-db";
-  // Stays at 3→4, never rolled back — a previously-shipped "pagetext"
+  // Stays at 3→4→5, never rolled back — a previously-shipped "pagetext"
   // store (DB_VERSION 3, since removed) left some clients already at
   // version 3; opening at a lower version than a client already reached
   // throws a VersionError.
-  const DB_VERSION = 4;
+  const DB_VERSION = 5;
   let dbPromise = null;
   function openDB(){
     if(dbPromise) return dbPromise;
@@ -914,6 +931,10 @@
         if(!db.objectStoreNames.contains("bookcontent")) db.createObjectStore("bookcontent", { keyPath:"id" });
         if(!db.objectStoreNames.contains("quotes")) db.createObjectStore("quotes", { keyPath:"id" });
         if(!db.objectStoreNames.contains("meta")) db.createObjectStore("meta", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("epubjobs")) db.createObjectStore("epubjobs", { keyPath:"bookId" });
+        if(!db.objectStoreNames.contains("epubbooks")) db.createObjectStore("epubbooks", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("epubbookcontent")) db.createObjectStore("epubbookcontent", { keyPath:"id" });
+        if(!db.objectStoreNames.contains("epubmeta")) db.createObjectStore("epubmeta", { keyPath:"id" });
       };
       req.onsuccess = ()=> resolve(req.result);
       req.onerror = ()=> reject(req.error);
@@ -976,6 +997,14 @@
     return all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }
   async function deleteQuote(id){ await idbDelete("quotes", id); }
+
+  // ---------- Resumable EPUB conversion jobs ----------
+  async function saveEpubJob(job){
+    try{ await idbPut("epubjobs", job); }
+    catch(e){ console.error("saveEpubJob failed", e); }
+  }
+  async function loadEpubJob(bookId){ return idbGet("epubjobs", bookId); }
+  async function deleteEpubJob(bookId){ await idbDelete("epubjobs", bookId); }
   async function saveBookData(id, name, size, data){
     try{
       await idbPut("bookinfo", { id, name, size, savedAt: Date.now() });
@@ -2330,7 +2359,8 @@
     updateEpubCropActionsUI();
   });
 
-  function openEpubSetup(){
+  let epubPendingResumeJob = null;
+  async function openEpubSetup(){
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
     settingsPanel.classList.remove("open");
     epubFromInput.value = 1;
@@ -2342,17 +2372,43 @@
     epubCropStatus.textContent = epubCropFrac ? "✓ تم تحديد منطقة النص" : "لم تُحدَّد بعد — مطلوبة قبل البدء";
     epubStartBtn.disabled = !epubCropFrac;
     epubStartBtn.hidden = false;
-    epubSetupForm.hidden = false;
     epubProgressWrap.hidden = true;
     epubConverting = false;
     epubCancelRequested = false;
     epubSetupOverlay.classList.add("open");
+
+    epubPendingResumeJob = currentBookId ? await loadEpubJob(currentBookId) : null;
+    if(epubPendingResumeJob){
+      epubResumeInfo.textContent =
+        `توقف تحويل صفحات ${epubPendingResumeJob.from}–${epubPendingResumeJob.to} عند الصفحة ${epubPendingResumeJob.nextPage - 1}.`;
+      epubResumeBanner.hidden = false;
+      epubSetupForm.hidden = true;
+      epubSetupBtnrow.hidden = true;
+    } else {
+      epubResumeBanner.hidden = true;
+      epubSetupForm.hidden = false;
+      epubSetupBtnrow.hidden = false;
+    }
   }
   function closeEpubSetup(){ epubSetupOverlay.classList.remove("open"); }
   epubBtn.addEventListener("click", openEpubSetup);
   epubSetupCancelBtn.addEventListener("click", ()=>{
     if(epubConverting){ epubCancelRequested = true; return; }
     closeEpubSetup();
+  });
+  epubResumeDiscardBtn.addEventListener("click", async ()=>{
+    if(currentBookId) await deleteEpubJob(currentBookId);
+    epubPendingResumeJob = null;
+    epubResumeBanner.hidden = true;
+    epubSetupForm.hidden = false;
+    epubSetupBtnrow.hidden = false;
+  });
+  epubResumeBtn.addEventListener("click", ()=>{
+    if(!epubPendingResumeJob) return;
+    const job = epubPendingResumeJob;
+    epubResumeBanner.hidden = true;
+    epubSetupBtnrow.hidden = false;
+    runEpubConversion(job.from, job.to, job.cropFrac, job);
   });
   epubSetupOverlay.addEventListener("click", (e)=>{
     if(e.target === epubSetupOverlay && !epubConverting) closeEpubSetup();
@@ -2515,15 +2571,15 @@ ${spineItems.join("\n")}
     setTimeout(()=> URL.revokeObjectURL(url), 10000);
   }
 
-  epubStartBtn.addEventListener("click", async ()=>{
-    if(!pdfDoc || !epubCropFrac) return;
-    let from = parseInt(toWesternDigits(epubFromInput.value), 10);
-    let to = parseInt(toWesternDigits(epubToInput.value), 10);
-    if(!from || isNaN(from)) from = 1;
-    if(!to || isNaN(to)) to = numPages;
-    from = Math.max(1, Math.min(from, numPages));
-    to = Math.max(from, Math.min(to, numPages));
-
+  // Progress is persisted after every single page (not just at chapter
+  // boundaries) — an interruption from iOS backgrounding the tab gives no
+  // chance to run cleanup code, so whatever was last written to
+  // IndexedDB IS the recovery point. resumeJob (if given) carries
+  // everything needed to continue exactly where a previous run left off:
+  // completed chapters, the in-progress chapter's pages so far, and the
+  // next page to process.
+  async function runEpubConversion(from, to, cropFrac, resumeJob){
+    if(!pdfDoc || !currentBookId) return;
     epubConverting = true;
     epubCancelRequested = false;
     epubSetupForm.hidden = true;
@@ -2533,14 +2589,15 @@ ${spineItems.join("\n")}
 
     try{
       const total = to - from + 1;
-      const chapters = [];
-      let chunkPages = [];
-      let chunkStart = from;
+      const chapters = resumeJob ? resumeJob.chapters.slice() : [];
+      let chunkPages = resumeJob && resumeJob.pendingChunkPages ? resumeJob.pendingChunkPages.slice() : [];
+      let chunkStart = resumeJob && resumeJob.pendingChunkStart != null ? resumeJob.pendingChunkStart : from;
+      const startPage = resumeJob ? resumeJob.nextPage : from;
 
-      for(let n = from; n <= to; n++){
+      for(let n = startPage; n <= to; n++){
         if(epubCancelRequested) break;
         epubProgressText.textContent = `⏳ جارٍ التحويل... ${n - from + 1} / ${total}`;
-        const crop = await renderEpubCropCanvas(n, epubCropFrac);
+        const crop = await renderEpubCropCanvas(n, cropFrac);
         const worker = await ensureOcrWorker();
         const { data } = await worker.recognize(crop, {}, { text: true, blocks: true });
         crop.width = 0; crop.height = 0;
@@ -2551,22 +2608,30 @@ ${spineItems.join("\n")}
           chunkPages = [];
           chunkStart = n + 1;
         }
+        await saveEpubJob({
+          bookId: currentBookId, from, to, cropFrac, chapters,
+          pendingChunkPages: chunkPages, pendingChunkStart: chunkStart,
+          nextPage: n + 1, createdAt: Date.now()
+        });
         if(n % 2 === 0) await new Promise(r => setTimeout(r, 0)); // let the progress text repaint
       }
 
       if(epubCancelRequested){
-        showToast("تم إيقاف التحويل");
+        showToast("تم إيقاف التحويل — يمكنك استكماله لاحقًا من نفس المكان");
       } else {
         epubProgressText.textContent = "⏳ جارٍ تجهيز الملف...";
         await new Promise(r => setTimeout(r, 0));
         const blob = await buildEpubBlob(chapters, currentBookName || "كتاب");
         downloadBlob(blob, `${currentBookName || "book"}.epub`);
+        await deleteEpubJob(currentBookId);
         showToast("تم تجهيز ملف EPUB للتنزيل");
       }
       closeEpubSetup();
     }catch(err){
+      // Progress already saved through the last completed page — left in
+      // place so the next attempt can resume instead of starting over.
       console.error("epub conversion failed", err);
-      showToast("تعذر تحويل الكتاب إلى EPUB");
+      showToast("تعذر تحويل الكتاب إلى EPUB — يمكن استكماله لاحقًا");
     }finally{
       epubConverting = false;
       epubCancelRequested = false;
@@ -2574,6 +2639,17 @@ ${spineItems.join("\n")}
       epubStartBtn.disabled = false;
       epubStartBtn.hidden = false;
     }
+  }
+
+  epubStartBtn.addEventListener("click", ()=>{
+    if(!pdfDoc || !epubCropFrac) return;
+    let from = parseInt(toWesternDigits(epubFromInput.value), 10);
+    let to = parseInt(toWesternDigits(epubToInput.value), 10);
+    if(!from || isNaN(from)) from = 1;
+    if(!to || isNaN(to)) to = numPages;
+    from = Math.max(1, Math.min(from, numPages));
+    to = Math.max(from, Math.min(to, numPages));
+    runEpubConversion(from, to, epubCropFrac, null);
   });
 
   // ---------- Settings panel toggle ----------
