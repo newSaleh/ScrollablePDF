@@ -302,6 +302,23 @@
   #updateBanner button:active{ background:rgba(255,255,255,.2); }
   #updateDismissBtn{ padding:7px 9px !important; }
 
+  /* ---------- Minimized EPUB conversion progress ---------- */
+  #epubFloatingProgress{
+    position:fixed; left:12px; right:12px; bottom:calc(14px + var(--safe-b));
+    z-index:56; background:var(--accent); color:#fff;
+    border-radius:12px; padding:10px 12px;
+    display:flex; align-items:center; gap:8px; box-shadow:var(--shadow);
+    font-size:13px; cursor:pointer; touch-action:manipulation;
+  }
+  #epubFloatingProgress[hidden]{ display:none; }
+  #epubFloatingProgress span{ flex:1 1 auto; text-align:start; }
+  #epubFloatingProgress button{
+    appearance:none; border:1px solid rgba(255,255,255,.6); background:transparent;
+    color:#fff; border-radius:9px; padding:7px 10px; font-size:13px; cursor:pointer;
+    touch-action:manipulation; flex:0 0 auto;
+  }
+  #epubFloatingProgress button:active{ background:rgba(255,255,255,.2); }
+
   /* ---------- Sleep-timer dim screen ---------- */
   .sleep-dim{
     position:fixed; inset:0; background:#000; z-index:100;
@@ -607,6 +624,12 @@
     <button id="updateDismissBtn" type="button" aria-label="إغلاق">✕</button>
   </div>
 
+  <div id="epubFloatingProgress" hidden>
+    <span id="epubFloatingProgressText">⏳ جارٍ التحويل…</span>
+    <button id="epubFloatingReopenBtn" type="button">عرض</button>
+    <button id="epubFloatingStopBtn" type="button" aria-label="إيقاف">✕</button>
+  </div>
+
   <div id="sleepDimOverlay" class="sleep-dim" hidden>
     <div class="sleep-dim-msg">🌙 تصبح على خير<br><span class="sleep-dim-hint">المس للعودة</span></div>
   </div>
@@ -728,6 +751,7 @@
       </div>
       <div id="epubProgressWrap" hidden>
         <div class="modal-hint" id="epubProgressText">جارٍ التحويل…</div>
+        <button class="link-btn" id="epubMinimizeBtn" type="button" style="display:block;width:100%;text-align:center;">تصغير وقراءة الكتاب ريثما ينتهي</button>
       </div>
       <div class="btnrow" id="epubSetupBtnrow">
         <button class="tbtn" id="epubSetupCancelBtn" type="button">إلغاء</button>
@@ -843,7 +867,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.4";
+  const BUILD_VERSION = "2026-10-29.5";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -947,6 +971,11 @@
   const epubSetupCancelBtn = $("epubSetupCancelBtn");
   const epubStartBtn = $("epubStartBtn");
   const epubSetupBtnrow = $("epubSetupBtnrow");
+  const epubMinimizeBtn = $("epubMinimizeBtn");
+  const epubFloatingProgress = $("epubFloatingProgress");
+  const epubFloatingProgressText = $("epubFloatingProgressText");
+  const epubFloatingReopenBtn = $("epubFloatingReopenBtn");
+  const epubFloatingStopBtn = $("epubFloatingStopBtn");
   const epubResumeBanner = $("epubResumeBanner");
   const epubResumeInfo = $("epubResumeInfo");
   const epubResumeDiscardBtn = $("epubResumeDiscardBtn");
@@ -2488,8 +2517,14 @@
   });
 
   let epubPendingResumeJob = null;
+  function reopenEpubProgress(){
+    settingsPanel.classList.remove("open");
+    epubFloatingProgress.hidden = true;
+    epubSetupOverlay.classList.add("open");
+  }
   async function openEpubSetup(){
     if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    if(epubConverting){ reopenEpubProgress(); return; }
     settingsPanel.classList.remove("open");
     epubFromInput.value = 1;
     epubToInput.value = numPages;
@@ -2540,6 +2575,25 @@
   });
   epubSetupOverlay.addEventListener("click", (e)=>{
     if(e.target === epubSetupOverlay && !epubConverting) closeEpubSetup();
+  });
+
+  // Minimizing lets the reader keep scrolling/reading the open book while
+  // the OCR (which already runs in its own worker thread) keeps going in
+  // this same tab — it does NOT survive switching to another app, since
+  // iOS Safari suspends a backgrounded tab's JS entirely; auto-resume
+  // (saveEpubJob, above) is what covers that case instead.
+  epubMinimizeBtn.addEventListener("click", ()=>{
+    closeEpubSetup();
+    epubFloatingProgress.hidden = false;
+  });
+  epubFloatingReopenBtn.addEventListener("click", reopenEpubProgress);
+  epubFloatingProgress.addEventListener("click", (e)=>{
+    if(e.target !== epubFloatingStopBtn) reopenEpubProgress();
+  });
+  epubFloatingStopBtn.addEventListener("click", (e)=>{
+    e.stopPropagation();
+    epubCancelRequested = true;
+    setEpubProgressText("⏳ جارٍ الإيقاف...");
   });
 
   function escapeXml(s){
@@ -2699,6 +2753,11 @@ ${spineItems.join("\n")}
     setTimeout(()=> URL.revokeObjectURL(url), 10000);
   }
 
+  function setEpubProgressText(text){
+    epubProgressText.textContent = text;
+    epubFloatingProgressText.textContent = text;
+  }
+
   // Progress is persisted after every single page (not just at chapter
   // boundaries) — an interruption from iOS backgrounding the tab gives no
   // chance to run cleanup code, so whatever was last written to
@@ -2724,7 +2783,7 @@ ${spineItems.join("\n")}
 
       for(let n = startPage; n <= to; n++){
         if(epubCancelRequested) break;
-        epubProgressText.textContent = `⏳ جارٍ التحويل... ${n - from + 1} / ${total}`;
+        setEpubProgressText(`⏳ جارٍ التحويل... ${n - from + 1} / ${total}`);
         const crop = await renderEpubCropCanvas(n, cropFrac);
         const worker = await ensureOcrWorker();
         const { data } = await worker.recognize(crop, {}, { text: true, blocks: true });
@@ -2747,7 +2806,7 @@ ${spineItems.join("\n")}
       if(epubCancelRequested){
         showToast("تم إيقاف التحويل — يمكنك استكماله لاحقًا من نفس المكان");
       } else {
-        epubProgressText.textContent = "⏳ جارٍ تجهيز الملف...";
+        setEpubProgressText("⏳ جارٍ تجهيز الملف...");
         await new Promise(r => setTimeout(r, 0));
         const blob = await buildEpubBlob(chapters, currentBookName || "كتاب");
         downloadBlob(blob, `${currentBookName || "book"}.epub`);
@@ -2766,6 +2825,7 @@ ${spineItems.join("\n")}
       epubSetupCancelBtn.textContent = "إلغاء";
       epubStartBtn.disabled = false;
       epubStartBtn.hidden = false;
+      epubFloatingProgress.hidden = true;
     }
   }
 
