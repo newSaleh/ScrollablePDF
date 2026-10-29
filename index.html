@@ -448,6 +448,44 @@
   .epub-preview-nav[hidden]{ display:none; }
   .epub-preview-nav .tbtn:disabled{ opacity:.4; }
 
+  /* ---------- EPUB reader ---------- */
+  .epub-reader-overlay{ padding:0; align-items:stretch; }
+  .epub-reader-card{
+    background:var(--bg); width:100%; height:100%;
+    display:flex; flex-direction:column;
+    padding-top:var(--safe-t); padding-bottom:var(--safe-b);
+    padding-left:var(--safe-l); padding-right:var(--safe-r);
+  }
+  .epub-reader-head{
+    flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:10px 12px; border-bottom:1px solid var(--border); background:var(--panel);
+  }
+  .epub-reader-title{
+    flex:1 1 auto; min-width:0; font-size:14px; font-weight:600;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;
+  }
+  .epub-reader-settings{
+    flex:0 0 auto; padding:14px 16px; border-bottom:1px solid var(--border); background:var(--panel);
+  }
+  .epub-reader-settings[hidden]{ display:none; }
+  .epub-reader-scroll{
+    flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    background:var(--epub-bg, #f2f1ec);
+  }
+  .epub-reader-content{
+    max-width:680px; margin:0 auto;
+    padding:24px calc(18px + var(--safe-r)) 24px calc(18px + var(--safe-l));
+    font-size:var(--epub-size, 20px); color:var(--epub-color, #26241f);
+    line-height:1.9; direction:rtl;
+  }
+  .epub-reader-content p{ margin:0 0 1em; text-align:justify; }
+  .epub-reader-content h1, .epub-reader-content h2, .epub-reader-content h3,
+  .epub-reader-content h4, .epub-reader-content h5, .epub-reader-content h6{
+    margin:1.2em 0 .6em; line-height:1.4;
+  }
+  .epub-reader-content blockquote{ margin:0 0 1em; padding-inline-start:1em; border-inline-start:3px solid var(--border); }
+  .epub-chapter-sep{ border:none; border-top:1px dashed var(--border); margin:2em 0; }
+
   input[type=file]{ display:none; }
 </style>
 </head>
@@ -520,6 +558,13 @@
       <div class="field">
         <button class="link-btn" id="epubBtn" type="button">📖 تحويل إلى EPUB (كتاب إلكتروني)</button>
         <div class="hint" style="text-align:center;">نص حقيقي بخط وخلفية قابلين للتعديل في أي تطبيق قراءة (كيندل مثلًا)؛ يحتاج تحديد نطاق الصفحات ومنطقة النص، وقد يحتوي بعض الأخطاء لأنه يعتمد على OCR</div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <button class="link-btn" id="epubLibraryBtn" type="button">📘 قراءة ملف EPUB</button>
+        <div class="hint" style="text-align:center;">افتح أي ملف EPUB (مثل الذي حوّلته هنا، أو أي كتاب إلكتروني آخر) واقرأه بخط ولون نص وخلفية تضبطها بنفسك</div>
       </div>
 
       <hr class="sep">
@@ -714,6 +759,66 @@
       </div>
     </div>
   </div>
+
+  <input type="file" id="epubFileInput" accept=".epub,application/epub+zip">
+
+  <div id="epubLibraryOverlay" class="modal-overlay">
+    <div class="modal-card library-card">
+      <h3>📘 كتب EPUB المحفوظة</h3>
+      <button class="link-btn" id="epubOpenNewBtn" type="button">📂 فتح ملف EPUB جديد</button>
+      <div class="library-list" id="epubLibraryList" style="margin-top:12px;"></div>
+      <div class="modal-hint" id="epubLibraryEmptyHint" hidden>لا توجد كتب EPUB محفوظة بعد</div>
+      <div class="btnrow">
+        <button class="tbtn" id="epubLibraryCloseBtn" type="button">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="epubDeleteOverlay" class="modal-overlay">
+    <div class="modal-card">
+      <h3>حذف الكتاب؟</h3>
+      <div class="modal-hint" id="epubDeleteHint"></div>
+      <div class="btnrow">
+        <button class="tbtn" id="epubDeleteCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="epubDeleteConfirmBtn" type="button">حذف</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="epubReaderOverlay" class="modal-overlay epub-reader-overlay">
+    <div class="epub-reader-card">
+      <div class="epub-reader-head">
+        <button class="tbtn small" id="epubReaderCloseBtn" type="button">✕</button>
+        <span class="epub-reader-title" id="epubReaderTitle"></span>
+        <button class="tbtn small" id="epubReaderSettingsBtn" type="button">⚙️</button>
+      </div>
+      <div class="epub-reader-settings" id="epubReaderSettingsPanel" hidden>
+        <div class="field">
+          <label>حجم الخط</label>
+          <div class="row">
+            <button class="stepbtn" id="epubFontMinus" type="button">−</button>
+            <input type="range" id="epubFontRange" min="14" max="36" step="1" value="20">
+            <button class="stepbtn" id="epubFontPlus" type="button">＋</button>
+          </div>
+        </div>
+        <div class="field">
+          <div class="row" style="justify-content:space-between;">
+            <label style="margin:0;">لون النص</label>
+            <input type="color" id="epubColorInput" value="#26241f" style="width:44px;height:34px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+          </div>
+        </div>
+        <div class="field">
+          <div class="row" style="justify-content:space-between;">
+            <label style="margin:0;">لون الخلفية</label>
+            <input type="color" id="epubBgInput" value="#f2f1ec" style="width:44px;height:34px;padding:2px;border:1px solid var(--border);border-radius:8px;background:var(--bg);">
+          </div>
+        </div>
+      </div>
+      <div class="epub-reader-scroll" id="epubReaderScroll">
+        <div class="epub-reader-content" id="epubReaderContent"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Self-hosted (not CDN): this is the one library the app cannot work
@@ -738,7 +843,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.3";
+  const BUILD_VERSION = "2026-10-29.4";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -846,6 +951,29 @@
   const epubResumeInfo = $("epubResumeInfo");
   const epubResumeDiscardBtn = $("epubResumeDiscardBtn");
   const epubResumeBtn = $("epubResumeBtn");
+  const epubFileInput = $("epubFileInput");
+  const epubLibraryBtn = $("epubLibraryBtn");
+  const epubLibraryOverlay = $("epubLibraryOverlay");
+  const epubOpenNewBtn = $("epubOpenNewBtn");
+  const epubLibraryList = $("epubLibraryList");
+  const epubLibraryEmptyHint = $("epubLibraryEmptyHint");
+  const epubLibraryCloseBtn = $("epubLibraryCloseBtn");
+  const epubDeleteOverlay = $("epubDeleteOverlay");
+  const epubDeleteHint = $("epubDeleteHint");
+  const epubDeleteCancelBtn = $("epubDeleteCancelBtn");
+  const epubDeleteConfirmBtn = $("epubDeleteConfirmBtn");
+  const epubReaderOverlay = $("epubReaderOverlay");
+  const epubReaderCloseBtn = $("epubReaderCloseBtn");
+  const epubReaderTitle = $("epubReaderTitle");
+  const epubReaderSettingsBtn = $("epubReaderSettingsBtn");
+  const epubReaderSettingsPanel = $("epubReaderSettingsPanel");
+  const epubFontRange = $("epubFontRange");
+  const epubFontMinus = $("epubFontMinus");
+  const epubFontPlus = $("epubFontPlus");
+  const epubColorInput = $("epubColorInput");
+  const epubBgInput = $("epubBgInput");
+  const epubReaderScroll = $("epubReaderScroll");
+  const epubReaderContent = $("epubReaderContent");
   const epubCropOverlay = $("epubCropOverlay");
   const epubCropCancelBtn = $("epubCropCancelBtn");
   const epubCropScroll = $("epubCropScroll");
@@ -2650,6 +2778,338 @@ ${spineItems.join("\n")}
     from = Math.max(1, Math.min(from, numPages));
     to = Math.max(from, Math.min(to, numPages));
     runEpubConversion(from, to, epubCropFrac, null);
+  });
+
+  // ---------- EPUB reader (open and read any .epub file in-app) ----------
+  function generateEpubId(){
+    return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+  async function saveEpubBookData(id, name, size, data){
+    try{
+      await idbPut("epubbooks", { id, name, size, savedAt: Date.now() });
+      await idbPut("epubbookcontent", { id, data });
+    }catch(e){
+      console.error("saveEpubBookData failed", e);
+      showToast("تعذر حفظ نسخة من كتاب EPUB");
+    }
+  }
+  async function loadEpubBookData(id){
+    const [info, content] = await Promise.all([idbGet("epubbooks", id), idbGet("epubbookcontent", id)]);
+    if(!info || !content) return null;
+    return { id, name: info.name, size: info.size, data: content.data };
+  }
+  async function listEpubBooks(){
+    const infos = await idbGetAll("epubbooks");
+    return infos.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  }
+  async function deleteEpubBook(id){
+    await idbDelete("epubbooks", id);
+    await idbDelete("epubbookcontent", id);
+    await idbDelete("epubmeta", id);
+  }
+  async function saveEpubMeta(id, scrollFrac){
+    try{ await idbPut("epubmeta", { id, scrollFrac, updatedAt: Date.now() }); }
+    catch(e){ console.error("saveEpubMeta failed", e); }
+  }
+  async function loadEpubMeta(id){ return idbGet("epubmeta", id); }
+
+  // Allowlist sanitizer for arbitrary (possibly untrusted) EPUB content —
+  // an .epub is just a zip of HTML, so a file from outside this app could
+  // contain scripts, event-handler attributes, or similar. Walks the
+  // parsed DOM itself (not a regex/string pass) and keeps only a small
+  // set of structural tags, unwrapping anything else to keep its safe
+  // text content without the wrapping element; strips every attribute
+  // except an explicit per-tag allowlist, and only allows http(s) links.
+  // Images are dropped entirely (no src is kept) — extracting embedded
+  // image bytes from the zip is a reasonable future addition, not needed
+  // for the primarily-text OCR output this app itself produces.
+  const EPUB_ALLOWED_TAGS = new Set([
+    "P","DIV","SPAN","BR","H1","H2","H3","H4","H5","H6","EM","I","STRONG","B","U",
+    "BLOCKQUOTE","UL","OL","LI","A","SUP","SUB","HR","TABLE","THEAD","TBODY","TR","TD","TH"
+  ]);
+  // These never get their text content kept either — unlike an
+  // unrecognized-but-harmless wrapper tag (where unwrapping and keeping
+  // the text makes sense), a <script>/<style> body was never meant to be
+  // read as prose, so it's dropped along with the element itself.
+  const EPUB_STRIP_ENTIRELY_TAGS = new Set([
+    "SCRIPT","STYLE","IFRAME","OBJECT","EMBED","NOSCRIPT","TEMPLATE",
+    "FORM","INPUT","BUTTON","SELECT","TEXTAREA","SVG","AUDIO","VIDEO","CANVAS"
+  ]);
+  const EPUB_ALLOWED_ATTRS = { A: ["href"] };
+  function sanitizeEpubNode(node){
+    Array.from(node.childNodes).forEach(child=>{
+      if(child.nodeType === Node.ELEMENT_NODE){
+        const tag = child.tagName;
+        if(EPUB_STRIP_ENTIRELY_TAGS.has(tag)){
+          node.removeChild(child);
+          return;
+        }
+        if(!EPUB_ALLOWED_TAGS.has(tag)){
+          sanitizeEpubNode(child);
+          while(child.firstChild) node.insertBefore(child.firstChild, child);
+          node.removeChild(child);
+          return;
+        }
+        const allowed = EPUB_ALLOWED_ATTRS[tag] || [];
+        Array.from(child.attributes).forEach(attr=>{
+          if(!allowed.includes(attr.name.toLowerCase())) child.removeAttribute(attr.name);
+        });
+        if(tag === "A"){
+          const href = child.getAttribute("href") || "";
+          if(!/^https?:\/\//i.test(href)) child.removeAttribute("href");
+          else{ child.setAttribute("target", "_blank"); child.setAttribute("rel", "noopener noreferrer"); }
+        }
+        sanitizeEpubNode(child);
+      } else if(child.nodeType !== Node.TEXT_NODE){
+        node.removeChild(child); // comments, processing instructions, etc.
+      }
+    });
+  }
+  function sanitizeEpubHtml(html){
+    const doc = new DOMParser().parseFromString("<div>" + html + "</div>", "text/html");
+    const root = doc.body.firstChild;
+    if(!root) return "";
+    sanitizeEpubNode(root);
+    return root.innerHTML;
+  }
+
+  async function parseEpubFile(arrayBuffer){
+    await loadFflate();
+    const files = fflate.unzipSync(new Uint8Array(arrayBuffer));
+    const decoder = new TextDecoder("utf-8");
+
+    const containerBytes = files["META-INF/container.xml"];
+    if(!containerBytes) throw new Error("ليس ملف EPUB صالحًا (container.xml مفقود)");
+    const containerDoc = new DOMParser().parseFromString(decoder.decode(containerBytes), "application/xml");
+    const rootfileEl = containerDoc.getElementsByTagName("rootfile")[0];
+    if(!rootfileEl) throw new Error("لا يوجد rootfile في container.xml");
+    const opfPath = rootfileEl.getAttribute("full-path");
+    const opfDir = opfPath.includes("/") ? opfPath.slice(0, opfPath.lastIndexOf("/") + 1) : "";
+
+    const opfBytes = files[opfPath];
+    if(!opfBytes) throw new Error("ملف content.opf غير موجود");
+    const opfDoc = new DOMParser().parseFromString(decoder.decode(opfBytes), "application/xml");
+
+    const manifest = {};
+    Array.from(opfDoc.getElementsByTagName("item")).forEach(item=>{
+      manifest[item.getAttribute("id")] = item.getAttribute("href");
+    });
+    const titleEl = opfDoc.getElementsByTagName("dc:title")[0];
+    const title = (titleEl && titleEl.textContent.trim()) || "كتاب";
+
+    const spineIds = Array.from(opfDoc.getElementsByTagName("itemref")).map(x => x.getAttribute("idref"));
+    const chapterPaths = spineIds.map(id => manifest[id]).filter(Boolean).map(href => opfDir + href);
+
+    const chapters = [];
+    for(const chPath of chapterPaths){
+      const bytes = files[chPath];
+      if(!bytes) continue;
+      const xhtml = decoder.decode(bytes);
+      let doc;
+      try{ doc = new DOMParser().parseFromString(xhtml, "application/xhtml+xml"); }
+      catch(e){ doc = null; }
+      if(!doc || doc.getElementsByTagName("parsererror").length){
+        doc = new DOMParser().parseFromString(xhtml, "text/html");
+      }
+      const body = doc.querySelector("body") || doc.documentElement;
+      const sanitized = sanitizeEpubHtml(body ? body.innerHTML : "");
+      if(sanitized.trim()) chapters.push(sanitized);
+    }
+    if(!chapters.length) throw new Error("لم يُعثر على فصول قابلة للقراءة في هذا الملف");
+    return { title, chapters };
+  }
+
+  // ---------- EPUB reader state/UI ----------
+  let currentEpubId = null;
+  let currentEpubTitle = "";
+  let epubFontSize = loadSetting("epubFontSize", 20);
+  let epubTextColor = loadSetting("epubTextColor", "#26241f");
+  let epubBgColor = loadSetting("epubBgColor", "#f2f1ec");
+  let epubScrollSaveTimer = null;
+
+  const EPUB_FONT_MIN = 14, EPUB_FONT_MAX = 36, EPUB_FONT_STEP = 1;
+  epubFontSize = Math.max(EPUB_FONT_MIN, Math.min(EPUB_FONT_MAX, epubFontSize));
+  epubFontRange.value = epubFontSize;
+  epubColorInput.value = epubTextColor;
+  epubBgInput.value = epubBgColor;
+  function applyEpubStyleVars(){
+    epubReaderContent.style.setProperty("--epub-size", epubFontSize + "px");
+    epubReaderContent.style.setProperty("--epub-color", epubTextColor);
+    epubReaderScroll.style.setProperty("--epub-bg", epubBgColor);
+  }
+  applyEpubStyleVars();
+
+  function renderEpubChapters(chapters){
+    epubReaderContent.innerHTML = "";
+    const frag = document.createDocumentFragment();
+    chapters.forEach((html, i)=>{
+      if(i > 0){
+        const hr = document.createElement("hr");
+        hr.className = "epub-chapter-sep";
+        frag.appendChild(hr);
+      }
+      const section = document.createElement("div");
+      section.innerHTML = html;
+      frag.appendChild(section);
+    });
+    epubReaderContent.appendChild(frag);
+  }
+
+  async function openEpubReaderFromBytes(data, name, id){
+    try{
+      const { title, chapters } = await parseEpubFile(data);
+      currentEpubId = id || null;
+      currentEpubTitle = title || (name || "كتاب").replace(/\.epub$/i, "");
+      epubReaderTitle.textContent = currentEpubTitle;
+      renderEpubChapters(chapters);
+      epubReaderOverlay.classList.add("open");
+      epubReaderScroll.scrollTop = 0;
+      if(currentEpubId){
+        const meta = await loadEpubMeta(currentEpubId);
+        if(meta && meta.scrollFrac){
+          requestAnimationFrame(()=>{
+            epubReaderScroll.scrollTop = meta.scrollFrac * (epubReaderScroll.scrollHeight - epubReaderScroll.clientHeight);
+          });
+        }
+      }
+      return true;
+    }catch(err){
+      console.error("epub open failed", err);
+      showToast("تعذر فتح هذا الملف — تأكد أنه EPUB صالح");
+      return false;
+    }
+  }
+  function closeEpubReader(){
+    epubReaderOverlay.classList.remove("open");
+    epubReaderSettingsPanel.hidden = true;
+    epubReaderContent.innerHTML = "";
+    currentEpubId = null;
+  }
+  epubReaderCloseBtn.addEventListener("click", closeEpubReader);
+  epubReaderSettingsBtn.addEventListener("click", ()=>{
+    epubReaderSettingsPanel.hidden = !epubReaderSettingsPanel.hidden;
+  });
+  epubReaderScroll.addEventListener("scroll", ()=>{
+    if(!currentEpubId) return;
+    clearTimeout(epubScrollSaveTimer);
+    epubScrollSaveTimer = setTimeout(()=>{
+      const max = epubReaderScroll.scrollHeight - epubReaderScroll.clientHeight;
+      const frac = max > 0 ? epubReaderScroll.scrollTop / max : 0;
+      saveEpubMeta(currentEpubId, frac);
+    }, 600);
+  });
+
+  function updateEpubFont(val){
+    epubFontSize = Math.max(EPUB_FONT_MIN, Math.min(EPUB_FONT_MAX, Math.round(val)));
+    epubFontRange.value = epubFontSize;
+    saveSetting("epubFontSize", epubFontSize);
+    applyEpubStyleVars();
+  }
+  epubFontRange.addEventListener("input", ()=> updateEpubFont(parseInt(epubFontRange.value, 10)));
+  epubFontMinus.addEventListener("click", ()=> updateEpubFont(epubFontSize - EPUB_FONT_STEP));
+  epubFontPlus.addEventListener("click", ()=> updateEpubFont(epubFontSize + EPUB_FONT_STEP));
+  epubColorInput.addEventListener("input", ()=>{
+    epubTextColor = epubColorInput.value;
+    saveSetting("epubTextColor", epubTextColor);
+    applyEpubStyleVars();
+  });
+  epubBgInput.addEventListener("input", ()=>{
+    epubBgColor = epubBgInput.value;
+    saveSetting("epubBgColor", epubBgColor);
+    applyEpubStyleVars();
+  });
+
+  // ---------- EPUB library ----------
+  function renderEpubLibraryItem(book){
+    const item = document.createElement("div");
+    item.className = "library-item" + (book.id === currentEpubId ? " current" : "");
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "library-item-btn";
+    const nameEl = document.createElement("div");
+    nameEl.className = "library-item-name";
+    nameEl.textContent = book.name || "كتاب";
+    const metaEl = document.createElement("div");
+    metaEl.className = "library-item-meta";
+    metaEl.textContent = formatBytes(book.size);
+    openBtn.appendChild(nameEl);
+    openBtn.appendChild(metaEl);
+    openBtn.addEventListener("click", ()=> openEpubBookFromLibrary(book));
+
+    const delBtn = document.createElement("button");
+    delBtn.type = "button";
+    delBtn.className = "library-delete-btn";
+    delBtn.title = "حذف";
+    delBtn.textContent = "🗑️";
+    delBtn.addEventListener("click", (e)=>{ e.stopPropagation(); openEpubDeleteConfirm(book); });
+
+    item.appendChild(openBtn);
+    item.appendChild(delBtn);
+    return item;
+  }
+  async function refreshEpubLibraryList(){
+    const books = await listEpubBooks();
+    epubLibraryList.innerHTML = "";
+    epubLibraryEmptyHint.hidden = books.length > 0;
+    books.forEach(b => epubLibraryList.appendChild(renderEpubLibraryItem(b)));
+  }
+  async function openEpubLibrary(){
+    settingsPanel.classList.remove("open");
+    await refreshEpubLibraryList();
+    epubLibraryOverlay.classList.add("open");
+  }
+  function closeEpubLibrary(){ epubLibraryOverlay.classList.remove("open"); }
+  epubLibraryBtn.addEventListener("click", openEpubLibrary);
+  epubLibraryCloseBtn.addEventListener("click", closeEpubLibrary);
+  epubLibraryOverlay.addEventListener("click", (e)=>{ if(e.target === epubLibraryOverlay) closeEpubLibrary(); });
+
+  async function openEpubBookFromLibrary(book){
+    closeEpubLibrary();
+    showToast("جارٍ فتح الكتاب…", 1200);
+    const rec = await loadEpubBookData(book.id);
+    if(!rec || !rec.data){
+      showToast("تعذر العثور على بيانات هذا الكتاب");
+      return;
+    }
+    await openEpubReaderFromBytes(rec.data, rec.name, book.id);
+  }
+
+  epubOpenNewBtn.addEventListener("click", ()=> epubFileInput.click());
+  epubFileInput.addEventListener("change", async (e)=>{
+    const f = e.target.files && e.target.files[0];
+    epubFileInput.value = "";
+    if(!f) return;
+    showToast("جارٍ فتح الملف…", 1500);
+    let buf;
+    try{ buf = await f.arrayBuffer(); }
+    catch(err){ console.error(err); showToast("تعذر قراءة الملف"); return; }
+    closeEpubLibrary();
+    const id = generateEpubId();
+    const opened = await openEpubReaderFromBytes(buf, f.name, id);
+    if(opened) await saveEpubBookData(id, f.name, buf.byteLength, buf);
+  });
+
+  let pendingDeleteEpubId = null;
+  function openEpubDeleteConfirm(book){
+    pendingDeleteEpubId = book.id;
+    epubDeleteHint.textContent = "«" + (book.name || "هذا الكتاب") + "» سيُحذف نهائيًا من هذا الجهاز.";
+    epubDeleteOverlay.classList.add("open");
+  }
+  function closeEpubDeleteConfirm(){
+    epubDeleteOverlay.classList.remove("open");
+    pendingDeleteEpubId = null;
+  }
+  epubDeleteCancelBtn.addEventListener("click", closeEpubDeleteConfirm);
+  epubDeleteOverlay.addEventListener("click", (e)=>{ if(e.target === epubDeleteOverlay) closeEpubDeleteConfirm(); });
+  epubDeleteConfirmBtn.addEventListener("click", async ()=>{
+    const id = pendingDeleteEpubId;
+    if(!id) return;
+    closeEpubDeleteConfirm();
+    await deleteEpubBook(id);
+    if(id === currentEpubId) closeEpubReader();
+    showToast("تم حذف الكتاب");
+    await refreshEpubLibraryList();
   });
 
   // ---------- Settings panel toggle ----------
