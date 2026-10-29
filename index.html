@@ -434,6 +434,13 @@
   }
   .quote-item-actions button:active{ background:var(--border); }
 
+  /* ---------- EPUB export: page-range form + crop-region selector ---------- */
+  .epub-cropbox{
+    position:absolute; border:2px solid var(--accent); background:rgba(169,103,63,.18);
+    pointer-events:none;
+  }
+  .epub-cropbox[hidden]{ display:none; }
+
   input[type=file]{ display:none; }
 </style>
 </head>
@@ -499,6 +506,13 @@
       <div class="field">
         <button class="link-btn" id="exportBtn" type="button">📤 تصدير الكتاب بنفس المؤثرات الحالية</button>
         <div class="hint" id="exportHint" style="text-align:center;">ملف PDF جديد بألوان الوضع الحالي (الليلي)؛ يصبح صورًا فقط، بلا نص قابل للتحديد</div>
+      </div>
+
+      <hr class="sep">
+
+      <div class="field">
+        <button class="link-btn" id="epubBtn" type="button">📖 تحويل إلى EPUB (كتاب إلكتروني)</button>
+        <div class="hint" style="text-align:center;">نص حقيقي بخط وخلفية قابلين للتعديل في أي تطبيق قراءة (كيندل مثلًا)؛ يحتاج تحديد نطاق الصفحات ومنطقة النص، وقد يحتوي بعض الأخطاء لأنه يعتمد على OCR</div>
       </div>
 
       <hr class="sep">
@@ -635,6 +649,52 @@
       </div>
     </div>
   </div>
+
+  <div id="epubSetupOverlay" class="modal-overlay">
+    <div class="modal-card">
+      <h3>تحويل إلى EPUB</h3>
+      <div id="epubSetupForm">
+        <div class="field">
+          <label>من صفحة</label>
+          <input type="text" id="epubFromInput" inputmode="numeric" pattern="[0-9٠-٩]*" value="1">
+        </div>
+        <div class="field">
+          <label>إلى صفحة</label>
+          <input type="text" id="epubToInput" inputmode="numeric" pattern="[0-9٠-٩]*" value="1">
+        </div>
+        <div class="field">
+          <button class="link-btn" id="epubDefineCropBtn" type="button">📐 تحديد منطقة النص</button>
+          <div class="hint" id="epubCropStatus" style="text-align:center;">لم تُحدَّد بعد — مطلوبة قبل البدء</div>
+        </div>
+      </div>
+      <div id="epubProgressWrap" hidden>
+        <div class="modal-hint" id="epubProgressText">جارٍ التحويل…</div>
+      </div>
+      <div class="btnrow">
+        <button class="tbtn" id="epubSetupCancelBtn" type="button">إلغاء</button>
+        <button class="tbtn accent" id="epubStartBtn" type="button" disabled>بدء التحويل</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="epubCropOverlay" class="modal-overlay quote-select-overlay">
+    <div class="quote-select-card">
+      <div class="quote-select-head">
+        <h3>تحديد منطقة النص</h3>
+        <button class="tbtn small" id="epubCropCancelBtn" type="button">إلغاء</button>
+      </div>
+      <div class="quote-select-hint">ارسم مربعًا حول منطقة النص فقط (دون العناوين أو أرقام الصفحات أو العلامات المائية)</div>
+      <div class="quote-select-scroll" id="epubCropScroll">
+        <div class="quote-select-imgwrap" id="epubCropImgWrap">
+          <div class="epub-cropbox" id="epubCropBox" hidden></div>
+        </div>
+      </div>
+      <div class="quote-select-actions" id="epubCropActions" hidden>
+        <button class="tbtn" id="epubCropRedoBtn" type="button">إعادة التحديد</button>
+        <button class="tbtn accent" id="epubCropConfirmBtn" type="button">تأكيد المنطقة</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Self-hosted (not CDN): this is the one library the app cannot work
@@ -659,7 +719,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-27.3";
+  const BUILD_VERSION = "2026-10-29.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -751,6 +811,25 @@
   const quoteDeleteHint = $("quoteDeleteHint");
   const quoteDeleteCancelBtn = $("quoteDeleteCancelBtn");
   const quoteDeleteConfirmBtn = $("quoteDeleteConfirmBtn");
+  const epubBtn = $("epubBtn");
+  const epubSetupOverlay = $("epubSetupOverlay");
+  const epubSetupForm = $("epubSetupForm");
+  const epubFromInput = $("epubFromInput");
+  const epubToInput = $("epubToInput");
+  const epubDefineCropBtn = $("epubDefineCropBtn");
+  const epubCropStatus = $("epubCropStatus");
+  const epubProgressWrap = $("epubProgressWrap");
+  const epubProgressText = $("epubProgressText");
+  const epubSetupCancelBtn = $("epubSetupCancelBtn");
+  const epubStartBtn = $("epubStartBtn");
+  const epubCropOverlay = $("epubCropOverlay");
+  const epubCropCancelBtn = $("epubCropCancelBtn");
+  const epubCropScroll = $("epubCropScroll");
+  const epubCropImgWrap = $("epubCropImgWrap");
+  const epubCropBox = $("epubCropBox");
+  const epubCropActions = $("epubCropActions");
+  const epubCropRedoBtn = $("epubCropRedoBtn");
+  const epubCropConfirmBtn = $("epubCropConfirmBtn");
 
   // ---------- State ----------
   let pdfDoc = null;
@@ -1108,6 +1187,7 @@
     pageCache.clear();
     wrapperOf.clear();
     quoteWordCache.clear();
+    epubCropFrac = null;
     pdfDoc = null; numPages = 0; baseAspect = null;
   }
 
@@ -2023,6 +2103,392 @@
       off.width = 0; off.height = 0; // release the offscreen canvas memory
       exportBtn.disabled = false;
       exportBtn.textContent = originalLabel;
+    }
+  });
+
+  // ---------- EPUB conversion (page range + one crop region, OCR'd) ----------
+  // The crop region excludes running headers, page numbers, and scan
+  // watermarks from the OCR input — those would otherwise get recognized
+  // as stray "paragraphs" mixed into the body text. One region is defined
+  // against a single reference page and reused (as fractions of page
+  // size, not fixed pixels) across the whole range, since a scanned
+  // book's pages share the same layout.
+  const EPUB_SRC_WIDTH = 1600;       // px — OCR render resolution
+  const EPUB_PAGES_PER_FILE = 20;    // pages grouped per internal XHTML file
+  let epubCropFrac = null;           // {left, top, width, height} as fractions 0..1, or null
+  let epubCropSourceCanvas = null;
+  let epubCropDragging = false;
+  let epubCropDragStart = null;
+  let epubConverting = false;
+  let epubCancelRequested = false;
+
+  function fitEpubCropCanvas(){
+    if(!epubCropSourceCanvas) return;
+    const availW = epubCropScroll.clientWidth - 4;
+    const availH = epubCropScroll.clientHeight - 4;
+    if(availW <= 0 || availH <= 0) return;
+    const scale = Math.min(availW / epubCropSourceCanvas.width, availH / epubCropSourceCanvas.height);
+    const dispW = Math.max(1, Math.round(epubCropSourceCanvas.width * scale));
+    const dispH = Math.max(1, Math.round(epubCropSourceCanvas.height * scale));
+    epubCropSourceCanvas.style.width = dispW + "px";
+    epubCropSourceCanvas.style.height = dispH + "px";
+    epubCropImgWrap.style.width = dispW + "px";
+    epubCropImgWrap.style.height = dispH + "px";
+  }
+  window.addEventListener("resize", ()=>{
+    if(epubCropOverlay.classList.contains("open")) fitEpubCropCanvas();
+  });
+
+  function showEpubCropBox(frac){
+    if(!epubCropSourceCanvas) return;
+    const dispW = epubCropSourceCanvas.clientWidth, dispH = epubCropSourceCanvas.clientHeight;
+    epubCropBox.style.left = (frac.left * dispW) + "px";
+    epubCropBox.style.top = (frac.top * dispH) + "px";
+    epubCropBox.style.width = (frac.width * dispW) + "px";
+    epubCropBox.style.height = (frac.height * dispH) + "px";
+    epubCropBox.hidden = false;
+    epubCropActions.hidden = false;
+  }
+
+  async function openEpubCrop(){
+    let refPage = parseInt(toWesternDigits(epubFromInput.value), 10);
+    if(!refPage || isNaN(refPage)) refPage = 1;
+    refPage = Math.max(1, Math.min(refPage, numPages));
+    epubCropImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    epubCropBox.hidden = true;
+    epubCropActions.hidden = true;
+    epubCropSourceCanvas = null;
+    epubCropOverlay.classList.add("open");
+    try{
+      const canvas = await renderQuoteSourceCanvas(refPage);
+      epubCropSourceCanvas = canvas;
+      epubCropImgWrap.insertBefore(canvas, epubCropBox);
+      fitEpubCropCanvas();
+      if(epubCropFrac) showEpubCropBox(epubCropFrac);
+    }catch(err){
+      console.error("epub crop page render failed", err);
+      showToast("تعذر تحميل الصفحة");
+      closeEpubCrop();
+    }
+  }
+  function closeEpubCrop(){
+    epubCropOverlay.classList.remove("open");
+    epubCropImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
+    epubCropSourceCanvas = null;
+    epubCropDragging = false;
+  }
+  epubDefineCropBtn.addEventListener("click", openEpubCrop);
+  epubCropCancelBtn.addEventListener("click", closeEpubCrop);
+
+  function epubClientToWrapPoint(clientX, clientY){
+    const rect = epubCropImgWrap.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(clientX - rect.left, rect.width)),
+      y: Math.max(0, Math.min(clientY - rect.top, rect.height))
+    };
+  }
+  epubCropImgWrap.addEventListener("pointerdown", (e)=>{
+    if(!epubCropSourceCanvas) return;
+    epubCropDragging = true;
+    epubCropDragStart = epubClientToWrapPoint(e.clientX, e.clientY);
+    epubCropBox.hidden = false;
+    epubCropActions.hidden = true;
+    epubCropBox.style.left = epubCropDragStart.x + "px";
+    epubCropBox.style.top = epubCropDragStart.y + "px";
+    epubCropBox.style.width = "0px";
+    epubCropBox.style.height = "0px";
+    try{ epubCropImgWrap.setPointerCapture(e.pointerId); }catch(err){}
+    e.preventDefault();
+  });
+  epubCropImgWrap.addEventListener("pointermove", (e)=>{
+    if(!epubCropDragging) return;
+    const p = epubClientToWrapPoint(e.clientX, e.clientY);
+    const left = Math.min(epubCropDragStart.x, p.x);
+    const top = Math.min(epubCropDragStart.y, p.y);
+    const width = Math.abs(p.x - epubCropDragStart.x);
+    const height = Math.abs(p.y - epubCropDragStart.y);
+    epubCropBox.style.left = left + "px";
+    epubCropBox.style.top = top + "px";
+    epubCropBox.style.width = width + "px";
+    epubCropBox.style.height = height + "px";
+    e.preventDefault();
+  });
+  function finishEpubCropDrag(){
+    if(!epubCropDragging) return;
+    epubCropDragging = false;
+    const width = parseFloat(epubCropBox.style.width) || 0;
+    const height = parseFloat(epubCropBox.style.height) || 0;
+    if(width < 10 || height < 10){
+      epubCropBox.hidden = true;
+      epubCropActions.hidden = true;
+      return;
+    }
+    epubCropActions.hidden = false;
+  }
+  epubCropImgWrap.addEventListener("pointerup", finishEpubCropDrag);
+  epubCropImgWrap.addEventListener("pointercancel", finishEpubCropDrag);
+
+  epubCropRedoBtn.addEventListener("click", ()=>{
+    epubCropBox.hidden = true;
+    epubCropActions.hidden = true;
+  });
+  epubCropConfirmBtn.addEventListener("click", ()=>{
+    if(!epubCropSourceCanvas || epubCropBox.hidden) return;
+    const dispW = epubCropSourceCanvas.clientWidth, dispH = epubCropSourceCanvas.clientHeight;
+    const left = parseFloat(epubCropBox.style.left) || 0;
+    const top = parseFloat(epubCropBox.style.top) || 0;
+    const width = parseFloat(epubCropBox.style.width) || 0;
+    const height = parseFloat(epubCropBox.style.height) || 0;
+    epubCropFrac = {
+      left: left / dispW, top: top / dispH,
+      width: width / dispW, height: height / dispH
+    };
+    epubCropStatus.textContent = "✓ تم تحديد منطقة النص";
+    epubStartBtn.disabled = false;
+    closeEpubCrop();
+  });
+
+  function openEpubSetup(){
+    if(!pdfDoc){ showToast("افتح كتابًا أولًا"); return; }
+    settingsPanel.classList.remove("open");
+    epubFromInput.value = 1;
+    epubToInput.value = numPages;
+    // epubCropFrac is intentionally NOT reset here — once defined for a
+    // book, the same text region applies to converting any other range
+    // of it too, so the reader shouldn't have to redraw it every time.
+    // It's cleared in resetAll() when a different book is opened instead.
+    epubCropStatus.textContent = epubCropFrac ? "✓ تم تحديد منطقة النص" : "لم تُحدَّد بعد — مطلوبة قبل البدء";
+    epubStartBtn.disabled = !epubCropFrac;
+    epubSetupForm.hidden = false;
+    epubProgressWrap.hidden = true;
+    epubConverting = false;
+    epubCancelRequested = false;
+    epubSetupOverlay.classList.add("open");
+  }
+  function closeEpubSetup(){ epubSetupOverlay.classList.remove("open"); }
+  epubBtn.addEventListener("click", openEpubSetup);
+  epubSetupCancelBtn.addEventListener("click", ()=>{
+    if(epubConverting){ epubCancelRequested = true; return; }
+    closeEpubSetup();
+  });
+  epubSetupOverlay.addEventListener("click", (e)=>{
+    if(e.target === epubSetupOverlay && !epubConverting) closeEpubSetup();
+  });
+
+  function escapeXml(s){
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+  }
+  let fflatePromise = null;
+  function loadFflate(){
+    if(!fflatePromise) fflatePromise = window.fflate ? Promise.resolve() : loadScript("vendor/fflate.min.js");
+    return fflatePromise;
+  }
+  function extractParagraphsArray(blocks){
+    const paras = [];
+    (blocks || []).forEach(block=>{
+      (block.paragraphs || []).forEach(para=>{
+        const lines = (para.lines || []).map(l => (l.text || "").trim()).filter(Boolean);
+        const joined = lines.join(" ").replace(/\s+/g, " ").trim();
+        if(joined) paras.push(joined);
+      });
+    });
+    return paras;
+  }
+  async function renderEpubCropCanvas(n, cropFrac){
+    const page = await getPageCached(n);
+    const natural = page.getViewport({ scale: 1 });
+    const scale = EPUB_SRC_WIDTH / natural.width;
+    const viewport = page.getViewport({ scale });
+    const full = document.createElement("canvas");
+    full.width = Math.round(viewport.width);
+    full.height = Math.round(viewport.height);
+    const fctx = full.getContext("2d");
+    fctx.fillStyle = "#ffffff";
+    fctx.fillRect(0, 0, full.width, full.height);
+    await page.render({ canvasContext: fctx, viewport }).promise;
+
+    const cx = Math.max(0, Math.round(cropFrac.left * full.width));
+    const cy = Math.max(0, Math.round(cropFrac.top * full.height));
+    const cw = Math.max(1, Math.min(full.width - cx, Math.round(cropFrac.width * full.width)));
+    const ch = Math.max(1, Math.min(full.height - cy, Math.round(cropFrac.height * full.height)));
+    const crop = document.createElement("canvas");
+    crop.width = cw; crop.height = ch;
+    crop.getContext("2d").drawImage(full, cx, cy, cw, ch, 0, 0, cw, ch);
+    full.width = 0; full.height = 0;
+    return crop;
+  }
+  function buildEpubChapterXhtml(title, pagesParagraphs){
+    const body = pagesParagraphs
+      .map(paras => paras.map(p => `<p>${escapeXml(p)}</p>`).join("\n"))
+      .filter(Boolean)
+      .join("\n");
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ar" lang="ar" dir="rtl">
+<head><title>${escapeXml(title)}</title><link rel="stylesheet" type="text/css" href="../styles.css"/></head>
+<body>
+${body || "<p></p>"}
+</body>
+</html>`;
+  }
+  function randomUuid(){
+    // Not cryptographically significant — just needs to be unique enough
+    // to identify this one generated file.
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c=>{
+      const r = Math.random() * 16 | 0;
+      const v = c === "x" ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+  async function buildEpubBlob(chapters, bookTitle){
+    await loadFflate();
+    const enc = fflate.strToU8;
+    const files = {};
+    // The EPUB mimetype entry must come first and be stored uncompressed
+    // (level 0) — this is how e-readers identify the archive as an EPUB
+    // before parsing anything else inside it.
+    files["mimetype"] = [enc("application/epub+zip"), { level: 0 }];
+    files["META-INF/container.xml"] = enc(
+`<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`);
+    files["OEBPS/styles.css"] = enc(
+`body{ font-family: serif; line-height: 1.7; margin: 1em; }
+p{ margin: 0 0 1em 0; text-align: justify; text-indent: 0; }`);
+
+    const manifestItems = [], spineItems = [], navItems = [], navPoints = [];
+    chapters.forEach((ch, i)=>{
+      const id = "chap" + (i + 1);
+      const fname = `text/chapter${i + 1}.xhtml`;
+      const title = `صفحات ${ch.startPage}–${ch.endPage}`;
+      files["OEBPS/" + fname] = enc(buildEpubChapterXhtml(title, ch.pages));
+      manifestItems.push(`    <item id="${id}" href="${fname}" media-type="application/xhtml+xml"/>`);
+      spineItems.push(`    <itemref idref="${id}"/>`);
+      navItems.push(`<li><a href="${fname}">${escapeXml(title)}</a></li>`);
+      navPoints.push(
+`    <navPoint id="np${i + 1}" playOrder="${i + 1}">
+      <navLabel><text>${escapeXml(title)}</text></navLabel>
+      <content src="${fname}"/>
+    </navPoint>`);
+    });
+
+    files["OEBPS/nav.xhtml"] = enc(
+`<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="ar" lang="ar" dir="rtl">
+<head><title>الفهرس</title></head>
+<body>
+<nav epub:type="toc" id="toc"><h1>الفهرس</h1><ol>
+${navItems.join("\n")}
+</ol></nav>
+</body>
+</html>`);
+
+    const bookId = "urn:uuid:" + randomUuid();
+    files["OEBPS/toc.ncx"] = enc(
+`<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head><meta name="dtb:uid" content="${bookId}"/></head>
+  <docTitle><text>${escapeXml(bookTitle)}</text></docTitle>
+  <navMap>
+${navPoints.join("\n")}
+  </navMap>
+</ncx>`);
+
+    const modified = new Date().toISOString().replace(/\.\d+Z$/, "Z");
+    files["OEBPS/content.opf"] = enc(
+`<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="BookId" xml:lang="ar">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="BookId">${bookId}</dc:identifier>
+    <dc:title>${escapeXml(bookTitle)}</dc:title>
+    <dc:language>ar</dc:language>
+    <meta property="dcterms:modified">${modified}</meta>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" properties="nav" media-type="application/xhtml+xml"/>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="css" href="styles.css" media-type="text/css"/>
+${manifestItems.join("\n")}
+  </manifest>
+  <spine page-progression-direction="rtl" toc="ncx">
+${spineItems.join("\n")}
+  </spine>
+</package>`);
+
+    const zipped = fflate.zipSync(files, { level: 6, mtime: new Date() });
+    return new Blob([zipped], { type: "application/epub+zip" });
+  }
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(()=> URL.revokeObjectURL(url), 10000);
+  }
+
+  epubStartBtn.addEventListener("click", async ()=>{
+    if(!pdfDoc || !epubCropFrac) return;
+    let from = parseInt(toWesternDigits(epubFromInput.value), 10);
+    let to = parseInt(toWesternDigits(epubToInput.value), 10);
+    if(!from || isNaN(from)) from = 1;
+    if(!to || isNaN(to)) to = numPages;
+    from = Math.max(1, Math.min(from, numPages));
+    to = Math.max(from, Math.min(to, numPages));
+
+    epubConverting = true;
+    epubCancelRequested = false;
+    epubSetupForm.hidden = true;
+    epubProgressWrap.hidden = false;
+    epubStartBtn.disabled = true;
+    epubSetupCancelBtn.textContent = "إيقاف";
+
+    try{
+      const total = to - from + 1;
+      const chapters = [];
+      let chunkPages = [];
+      let chunkStart = from;
+
+      for(let n = from; n <= to; n++){
+        if(epubCancelRequested) break;
+        epubProgressText.textContent = `⏳ جارٍ التحويل... ${n - from + 1} / ${total}`;
+        const crop = await renderEpubCropCanvas(n, epubCropFrac);
+        const worker = await ensureOcrWorker();
+        const { data } = await worker.recognize(crop, {}, { text: true, blocks: true });
+        crop.width = 0; crop.height = 0;
+        chunkPages.push(extractParagraphsArray(data.blocks));
+
+        if(chunkPages.length >= EPUB_PAGES_PER_FILE || n === to){
+          chapters.push({ startPage: chunkStart, endPage: n, pages: chunkPages });
+          chunkPages = [];
+          chunkStart = n + 1;
+        }
+        if(n % 2 === 0) await new Promise(r => setTimeout(r, 0)); // let the progress text repaint
+      }
+
+      if(epubCancelRequested){
+        showToast("تم إيقاف التحويل");
+      } else {
+        epubProgressText.textContent = "⏳ جارٍ تجهيز الملف...";
+        await new Promise(r => setTimeout(r, 0));
+        const blob = await buildEpubBlob(chapters, currentBookName || "كتاب");
+        downloadBlob(blob, `${currentBookName || "book"}.epub`);
+        showToast("تم تجهيز ملف EPUB للتنزيل");
+      }
+      closeEpubSetup();
+    }catch(err){
+      console.error("epub conversion failed", err);
+      showToast("تعذر تحويل الكتاب إلى EPUB");
+    }finally{
+      epubConverting = false;
+      epubCancelRequested = false;
+      epubSetupCancelBtn.textContent = "إلغاء";
+      epubStartBtn.disabled = false;
     }
   });
 
