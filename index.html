@@ -440,6 +440,13 @@
     pointer-events:none;
   }
   .epub-cropbox[hidden]{ display:none; }
+  .epub-preview-nav{
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    margin-bottom:10px; font-size:12.5px; color:var(--muted);
+    font-variant-numeric:tabular-nums;
+  }
+  .epub-preview-nav[hidden]{ display:none; }
+  .epub-preview-nav .tbtn:disabled{ opacity:.4; }
 
   input[type=file]{ display:none; }
 </style>
@@ -684,6 +691,11 @@
         <button class="tbtn small" id="epubCropCancelBtn" type="button">إلغاء</button>
       </div>
       <div class="quote-select-hint">ارسم مربعًا حول منطقة النص فقط (دون العناوين أو أرقام الصفحات أو العلامات المائية)</div>
+      <div class="epub-preview-nav" id="epubPreviewNav" hidden>
+        <button class="tbtn small" id="epubPreviewPrevBtn" type="button">◀</button>
+        <span id="epubPreviewLabel"></span>
+        <button class="tbtn small" id="epubPreviewNextBtn" type="button">▶</button>
+      </div>
       <div class="quote-select-scroll" id="epubCropScroll">
         <div class="quote-select-imgwrap" id="epubCropImgWrap">
           <div class="epub-cropbox" id="epubCropBox" hidden></div>
@@ -719,7 +731,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.1";
+  const BUILD_VERSION = "2026-10-29.2";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -830,6 +842,10 @@
   const epubCropActions = $("epubCropActions");
   const epubCropRedoBtn = $("epubCropRedoBtn");
   const epubCropConfirmBtn = $("epubCropConfirmBtn");
+  const epubPreviewNav = $("epubPreviewNav");
+  const epubPreviewPrevBtn = $("epubPreviewPrevBtn");
+  const epubPreviewLabel = $("epubPreviewLabel");
+  const epubPreviewNextBtn = $("epubPreviewNextBtn");
 
   // ---------- State ----------
   let pdfDoc = null;
@@ -2119,6 +2135,9 @@
   let epubCropSourceCanvas = null;
   let epubCropDragging = false;
   let epubCropDragStart = null;
+  let epubCropPendingNew = false;    // true once a fresh drag finished but hasn't been confirmed yet
+  let epubSamplePages = [];          // a few pages spread across the chosen range, to preview the crop against
+  let epubSampleIdx = 0;
   let epubConverting = false;
   let epubCancelRequested = false;
 
@@ -2147,29 +2166,76 @@
     epubCropBox.style.width = (frac.width * dispW) + "px";
     epubCropBox.style.height = (frac.height * dispH) + "px";
     epubCropBox.hidden = false;
-    epubCropActions.hidden = false;
   }
 
-  async function openEpubCrop(){
-    let refPage = parseInt(toWesternDigits(epubFromInput.value), 10);
-    if(!refPage || isNaN(refPage)) refPage = 1;
-    refPage = Math.max(1, Math.min(refPage, numPages));
+  // A handful of pages spread across the range (first, ~25/50/75%, last —
+  // or every page, if the range is already that short) — lets the reader
+  // check the one shared crop region against pages that may lay out
+  // differently (a chapter heading, a footnote-heavy page) before running
+  // the full, slow conversion over every page in between.
+  function computeEpubSamplePages(from, to){
+    const span = to - from;
+    if(span <= 4){
+      const arr = [];
+      for(let n = from; n <= to; n++) arr.push(n);
+      return arr;
+    }
+    const fracs = [0, 0.25, 0.5, 0.75, 1];
+    const set = new Set(fracs.map(f => from + Math.round(span * f)));
+    return Array.from(set).sort((a, b) => a - b);
+  }
+
+  // Right button reflects whether there's a freshly-drawn, not-yet-saved
+  // box to confirm, or whether the reader is just browsing an already-
+  // saved region and can simply finish previewing.
+  function updateEpubCropActionsUI(){
+    const hasBox = !epubCropBox.hidden;
+    epubCropActions.hidden = !hasBox;
+    epubCropRedoBtn.hidden = !hasBox;
+    epubCropConfirmBtn.textContent = epubCropPendingNew ? "تأكيد هذا التحديد" : "تم ✓ إغلاق المعاينة";
+  }
+  function updateEpubPreviewLabel(){
+    const n = epubSamplePages[epubSampleIdx];
+    epubPreviewLabel.textContent = `معاينة: صفحة ${n} (${epubSampleIdx + 1} من ${epubSamplePages.length})`;
+    epubPreviewPrevBtn.disabled = epubSampleIdx === 0;
+    epubPreviewNextBtn.disabled = epubSampleIdx === epubSamplePages.length - 1;
+  }
+
+  async function loadEpubCropPage(pageNum){
     epubCropImgWrap.querySelectorAll("canvas").forEach(c => c.remove());
     epubCropBox.hidden = true;
+    epubCropPendingNew = false;
     epubCropActions.hidden = true;
     epubCropSourceCanvas = null;
-    epubCropOverlay.classList.add("open");
+    updateEpubPreviewLabel();
     try{
-      const canvas = await renderQuoteSourceCanvas(refPage);
+      const canvas = await renderQuoteSourceCanvas(pageNum);
       epubCropSourceCanvas = canvas;
       epubCropImgWrap.insertBefore(canvas, epubCropBox);
       fitEpubCropCanvas();
-      if(epubCropFrac) showEpubCropBox(epubCropFrac);
+      if(epubCropFrac){
+        showEpubCropBox(epubCropFrac);
+        updateEpubCropActionsUI();
+      }
     }catch(err){
       console.error("epub crop page render failed", err);
       showToast("تعذر تحميل الصفحة");
       closeEpubCrop();
     }
+  }
+
+  async function openEpubCrop(){
+    let from = parseInt(toWesternDigits(epubFromInput.value), 10);
+    let to = parseInt(toWesternDigits(epubToInput.value), 10);
+    if(!from || isNaN(from)) from = 1;
+    if(!to || isNaN(to)) to = numPages;
+    from = Math.max(1, Math.min(from, numPages));
+    to = Math.max(from, Math.min(to, numPages));
+    epubSamplePages = computeEpubSamplePages(from, to);
+    epubSampleIdx = 0;
+    epubPreviewNav.hidden = epubSamplePages.length <= 1;
+    epubCropOverlay.classList.add("open");
+    await loadEpubCropPage(epubSamplePages[0]);
   }
   function closeEpubCrop(){
     epubCropOverlay.classList.remove("open");
@@ -2179,6 +2245,12 @@
   }
   epubDefineCropBtn.addEventListener("click", openEpubCrop);
   epubCropCancelBtn.addEventListener("click", closeEpubCrop);
+  epubPreviewPrevBtn.addEventListener("click", ()=>{
+    if(epubSampleIdx > 0){ epubSampleIdx--; loadEpubCropPage(epubSamplePages[epubSampleIdx]); }
+  });
+  epubPreviewNextBtn.addEventListener("click", ()=>{
+    if(epubSampleIdx < epubSamplePages.length - 1){ epubSampleIdx++; loadEpubCropPage(epubSamplePages[epubSampleIdx]); }
+  });
 
   function epubClientToWrapPoint(clientX, clientY){
     const rect = epubCropImgWrap.getBoundingClientRect();
@@ -2219,20 +2291,25 @@
     const width = parseFloat(epubCropBox.style.width) || 0;
     const height = parseFloat(epubCropBox.style.height) || 0;
     if(width < 10 || height < 10){
-      epubCropBox.hidden = true;
-      epubCropActions.hidden = true;
+      // Too small to be deliberate — fall back to whatever was already
+      // saved (if anything), rather than leaving a stray empty box.
+      if(epubCropFrac){ showEpubCropBox(epubCropFrac); epubCropPendingNew = false; updateEpubCropActionsUI(); }
+      else{ epubCropBox.hidden = true; epubCropActions.hidden = true; }
       return;
     }
-    epubCropActions.hidden = false;
+    epubCropPendingNew = true;
+    updateEpubCropActionsUI();
   }
   epubCropImgWrap.addEventListener("pointerup", finishEpubCropDrag);
   epubCropImgWrap.addEventListener("pointercancel", finishEpubCropDrag);
 
   epubCropRedoBtn.addEventListener("click", ()=>{
     epubCropBox.hidden = true;
+    epubCropPendingNew = false;
     epubCropActions.hidden = true;
   });
   epubCropConfirmBtn.addEventListener("click", ()=>{
+    if(!epubCropPendingNew){ closeEpubCrop(); return; }
     if(!epubCropSourceCanvas || epubCropBox.hidden) return;
     const dispW = epubCropSourceCanvas.clientWidth, dispH = epubCropSourceCanvas.clientHeight;
     const left = parseFloat(epubCropBox.style.left) || 0;
@@ -2245,7 +2322,12 @@
     };
     epubCropStatus.textContent = "✓ تم تحديد منطقة النص";
     epubStartBtn.disabled = false;
-    closeEpubCrop();
+    epubCropPendingNew = false;
+    // Nothing to compare it against when there's only one sample page —
+    // the confirm/done split only earns its keep once there's a second
+    // page to flip to, so just finish immediately in that case.
+    if(epubSamplePages.length <= 1){ closeEpubCrop(); return; }
+    updateEpubCropActionsUI();
   });
 
   function openEpubSetup(){
@@ -2259,6 +2341,7 @@
     // It's cleared in resetAll() when a different book is opened instead.
     epubCropStatus.textContent = epubCropFrac ? "✓ تم تحديد منطقة النص" : "لم تُحدَّد بعد — مطلوبة قبل البدء";
     epubStartBtn.disabled = !epubCropFrac;
+    epubStartBtn.hidden = false;
     epubSetupForm.hidden = false;
     epubProgressWrap.hidden = true;
     epubConverting = false;
@@ -2445,7 +2528,7 @@ ${spineItems.join("\n")}
     epubCancelRequested = false;
     epubSetupForm.hidden = true;
     epubProgressWrap.hidden = false;
-    epubStartBtn.disabled = true;
+    epubStartBtn.hidden = true; // not just disabled — a disabled .tbtn still looks fully active
     epubSetupCancelBtn.textContent = "إيقاف";
 
     try{
@@ -2489,6 +2572,7 @@ ${spineItems.join("\n")}
       epubCancelRequested = false;
       epubSetupCancelBtn.textContent = "إلغاء";
       epubStartBtn.disabled = false;
+      epubStartBtn.hidden = false;
     }
   });
 
