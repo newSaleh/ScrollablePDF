@@ -179,6 +179,11 @@
   .field .hint{ font-size:11px; color:var(--muted); margin-top:4px; }
   .btnrow{ display:flex; gap:8px; margin-top:8px; }
   .btnrow .tbtn{ flex:1; font-size:13px; }
+  /* .tbtn sets its own `display`, which (being author CSS) overrides the
+     browser's built-in `[hidden]{display:none}` rule regardless of
+     selector specificity — so a hidden .tbtn stayed visible AND
+     clickable without this. */
+  .tbtn[hidden]{ display:none; }
   hr.sep{ border:none; border-top:1px solid var(--border); margin:14px 0; }
   .switch-row{ display:flex; align-items:center; justify-content:space-between; }
   .link-btn{
@@ -867,7 +872,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.5";
+  const BUILD_VERSION = "2026-10-29.6";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -2771,7 +2776,12 @@ ${spineItems.join("\n")}
     epubCancelRequested = false;
     epubSetupForm.hidden = true;
     epubProgressWrap.hidden = false;
-    epubStartBtn.hidden = true; // not just disabled — a disabled .tbtn still looks fully active
+    // Both disabled (so a native click is blocked even if something makes
+    // the button visible again) and hidden (so it isn't just greyed out —
+    // a disabled .tbtn still looks fully active without the CSS override
+    // below).
+    epubStartBtn.disabled = true;
+    epubStartBtn.hidden = true;
     epubSetupCancelBtn.textContent = "إيقاف";
 
     try{
@@ -2830,7 +2840,7 @@ ${spineItems.join("\n")}
   }
 
   epubStartBtn.addEventListener("click", ()=>{
-    if(!pdfDoc || !epubCropFrac) return;
+    if(!pdfDoc || !epubCropFrac || epubConverting) return;
     let from = parseInt(toWesternDigits(epubFromInput.value), 10);
     let to = parseInt(toWesternDigits(epubToInput.value), 10);
     if(!from || isNaN(from)) from = 1;
