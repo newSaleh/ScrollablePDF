@@ -874,7 +874,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.7";
+  const BUILD_VERSION = "2026-10-29.8";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -1163,9 +1163,17 @@
   async function deleteQuote(id){ await idbDelete("quotes", id); }
 
   // ---------- Resumable EPUB conversion jobs ----------
+  // Guards against ever persisting LESS progress than what's already on
+  // disk for this book — a safety net so a stray out-of-order write (a
+  // slow save landing after a newer one, or any other scheduling surprise)
+  // can never make a resumed conversion restart earlier than where it
+  // genuinely left off.
   async function saveEpubJob(job){
-    try{ await idbPut("epubjobs", job); }
-    catch(e){ console.error("saveEpubJob failed", e); }
+    try{
+      const existing = await idbGet("epubjobs", job.bookId);
+      if(existing && typeof existing.nextPage === "number" && existing.nextPage > job.nextPage) return;
+      await idbPut("epubjobs", job);
+    }catch(e){ console.error("saveEpubJob failed", e); }
   }
   async function loadEpubJob(bookId){ return idbGet("epubjobs", bookId); }
   async function deleteEpubJob(bookId){ await idbDelete("epubjobs", bookId); }
