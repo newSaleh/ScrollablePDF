@@ -492,6 +492,20 @@
     flex:0 0 auto; padding:14px 16px; border-bottom:1px solid var(--border); background:var(--panel);
   }
   .epub-reader-settings[hidden]{ display:none; }
+  .epub-reader-search{
+    flex:0 0 auto; padding:10px 12px; border-bottom:1px solid var(--border); background:var(--panel);
+  }
+  .epub-reader-search[hidden]{ display:none; }
+  .epub-reader-search input[type=search]{
+    flex:1 1 auto; min-width:0; padding:9px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:14px; background:var(--bg); color:var(--text);
+  }
+  .epub-search-count{
+    flex:0 0 auto; font-size:12px; color:var(--muted); min-width:40px;
+    text-align:center; font-variant-numeric:tabular-nums;
+  }
+  .epub-search-mark{ background:rgba(250,204,21,.45); color:inherit; border-radius:2px; }
+  .epub-search-mark.current{ background:#f5a524; color:#1a1408; }
   .epub-reader-scroll{
     flex:1 1 auto; overflow-y:auto; -webkit-overflow-scrolling:touch;
     background:var(--epub-bg, #f2f1ec);
@@ -821,7 +835,19 @@
       <div class="epub-reader-head">
         <button class="tbtn small" id="epubReaderCloseBtn" type="button">✕</button>
         <span class="epub-reader-title" id="epubReaderTitle"></span>
+        <button class="tbtn small" id="epubReaderSearchBtn" type="button">🔍</button>
         <button class="tbtn small" id="epubReaderSettingsBtn" type="button">⚙️</button>
+      </div>
+      <div class="epub-reader-search" id="epubReaderSearchPanel" hidden>
+        <div class="field" style="margin-bottom:0;">
+          <div class="row">
+            <input type="search" id="epubSearchInput" placeholder="ابحث في نص الكتاب…"
+                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+            <span class="epub-search-count" id="epubSearchCount"></span>
+            <button class="stepbtn" id="epubSearchPrevBtn" type="button" aria-label="السابق">‹</button>
+            <button class="stepbtn" id="epubSearchNextBtn" type="button" aria-label="التالي">›</button>
+          </div>
+        </div>
       </div>
       <div class="epub-reader-settings" id="epubReaderSettingsPanel" hidden>
         <div class="field">
@@ -874,7 +900,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.8";
+  const BUILD_VERSION = "2026-10-29.9";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -1003,6 +1029,12 @@
   const epubReaderTitle = $("epubReaderTitle");
   const epubReaderSettingsBtn = $("epubReaderSettingsBtn");
   const epubReaderSettingsPanel = $("epubReaderSettingsPanel");
+  const epubReaderSearchBtn = $("epubReaderSearchBtn");
+  const epubReaderSearchPanel = $("epubReaderSearchPanel");
+  const epubSearchInput = $("epubSearchInput");
+  const epubSearchCount = $("epubSearchCount");
+  const epubSearchPrevBtn = $("epubSearchPrevBtn");
+  const epubSearchNextBtn = $("epubSearchNextBtn");
   const epubFontRange = $("epubFontRange");
   const epubFontMinus = $("epubFontMinus");
   const epubFontPlus = $("epubFontPlus");
@@ -3041,7 +3073,90 @@ ${spineItems.join("\n")}
       frag.appendChild(section);
     });
     epubReaderContent.appendChild(frag);
+    resetEpubSearch();
   }
+
+  // ---------- In-reader text search ----------
+  let epubSearchMatches = [];
+  let epubSearchIndex = -1;
+  let epubSearchDebounceTimer = null;
+  function clearEpubSearchHighlights(){
+    epubReaderContent.querySelectorAll(".epub-search-mark").forEach(mark=>{
+      mark.replaceWith(document.createTextNode(mark.textContent));
+    });
+    epubReaderContent.normalize();
+    epubSearchMatches = [];
+    epubSearchIndex = -1;
+  }
+  function resetEpubSearch(){
+    epubSearchMatches = [];
+    epubSearchIndex = -1;
+    epubSearchInput.value = "";
+    epubSearchCount.textContent = "";
+    epubReaderSearchPanel.hidden = true;
+  }
+  function updateEpubSearchCount(){
+    epubSearchCount.textContent = epubSearchMatches.length
+      ? `${epubSearchIndex + 1} / ${epubSearchMatches.length}`
+      : (epubSearchInput.value ? "0" : "");
+  }
+  function focusEpubSearchMatch(){
+    epubSearchMatches.forEach(m => m.classList.remove("current"));
+    const mark = epubSearchMatches[epubSearchIndex];
+    if(!mark) return;
+    mark.classList.add("current");
+    mark.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+  function runEpubSearch(query){
+    clearEpubSearchHighlights();
+    if(!query){ updateEpubSearchCount(); return; }
+    const q = query.toLowerCase();
+    const walker = document.createTreeWalker(epubReaderContent, NodeFilter.SHOW_TEXT, null);
+    const textNodes = [];
+    let node;
+    while((node = walker.nextNode())) textNodes.push(node);
+    textNodes.forEach(tn=>{
+      const text = tn.nodeValue;
+      const lower = text.toLowerCase();
+      if(!lower.includes(q)) return;
+      const frag = document.createDocumentFragment();
+      let i = 0, idx;
+      while((idx = lower.indexOf(q, i)) !== -1){
+        if(idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+        const mark = document.createElement("mark");
+        mark.className = "epub-search-mark";
+        mark.textContent = text.slice(idx, idx + q.length);
+        frag.appendChild(mark);
+        i = idx + q.length;
+      }
+      if(i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+      tn.parentNode.replaceChild(frag, tn);
+    });
+    epubSearchMatches = Array.from(epubReaderContent.querySelectorAll(".epub-search-mark"));
+    epubSearchIndex = epubSearchMatches.length ? 0 : -1;
+    updateEpubSearchCount();
+    if(epubSearchIndex >= 0) focusEpubSearchMatch();
+  }
+  function epubSearchStep(delta){
+    if(!epubSearchMatches.length) return;
+    epubSearchIndex = (epubSearchIndex + delta + epubSearchMatches.length) % epubSearchMatches.length;
+    focusEpubSearchMatch();
+    updateEpubSearchCount();
+  }
+  epubReaderSearchBtn.addEventListener("click", ()=>{
+    epubReaderSettingsPanel.hidden = true;
+    epubReaderSearchPanel.hidden = !epubReaderSearchPanel.hidden;
+    if(!epubReaderSearchPanel.hidden) epubSearchInput.focus();
+  });
+  epubSearchInput.addEventListener("input", ()=>{
+    clearTimeout(epubSearchDebounceTimer);
+    epubSearchDebounceTimer = setTimeout(()=> runEpubSearch(epubSearchInput.value.trim()), 200);
+  });
+  epubSearchInput.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter"){ e.preventDefault(); epubSearchStep(e.shiftKey ? -1 : 1); }
+  });
+  epubSearchPrevBtn.addEventListener("click", ()=> epubSearchStep(-1));
+  epubSearchNextBtn.addEventListener("click", ()=> epubSearchStep(1));
 
   async function openEpubReaderFromBytes(data, name, id){
     try{
@@ -3070,11 +3185,13 @@ ${spineItems.join("\n")}
   function closeEpubReader(){
     epubReaderOverlay.classList.remove("open");
     epubReaderSettingsPanel.hidden = true;
+    resetEpubSearch();
     epubReaderContent.innerHTML = "";
     currentEpubId = null;
   }
   epubReaderCloseBtn.addEventListener("click", closeEpubReader);
   epubReaderSettingsBtn.addEventListener("click", ()=>{
+    epubReaderSearchPanel.hidden = true;
     epubReaderSettingsPanel.hidden = !epubReaderSettingsPanel.hidden;
   });
   epubReaderScroll.addEventListener("scroll", ()=>{
