@@ -900,7 +900,7 @@
   // Keep this in sync with version.txt — every deploy should bump both to
   // the same value so the update-checker below only fires for people who
   // are genuinely behind, never for a freshly-loaded copy of the latest.
-  const BUILD_VERSION = "2026-10-29.9";
+  const BUILD_VERSION = "2026-10-30.1";
 
   pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdf.worker.min.js";
 
@@ -2382,12 +2382,44 @@
   let epubConverting = false;
   let epubCancelRequested = false;
 
+  // Every sample page's canvas shares the exact same WIDTH (QUOTE_SRC_WIDTH)
+  // but a HEIGHT that varies a little page to page — real scanned books are
+  // rarely perfectly uniform. Fitting each page fresh with min(byWidth,
+  // byHeight) let that tiny height variance flip which dimension was
+  // actually binding: on a narrow/tall phone screen width is always the
+  // binding one, so the fit stayed effectively constant across pages: on a
+  // wide/short laptop window height binds instead, so each page's own
+  // slightly different height visibly grew/shrank the whole preview.
+  // Picking one scale up front — sized to the TALLEST sample page, so none
+  // of them ever needs to be clamped smaller than the others — and reusing
+  // it for every sample keeps the preview the same size across all of
+  // them, on any screen.
+  let epubCropFitScale = null;
+  async function prepareEpubCropFitScale(){
+    epubCropFitScale = null;
+    const availW = epubCropScroll.clientWidth - 4;
+    const availH = epubCropScroll.clientHeight - 4;
+    if(availW <= 0 || availH <= 0) return;
+    let maxCanvasHeight = 0;
+    for(const n of epubSamplePages){
+      const pdfPage = await getPageCached(n);
+      const natural = pdfPage.getViewport({ scale: 1 });
+      maxCanvasHeight = Math.max(maxCanvasHeight, natural.height * (QUOTE_SRC_WIDTH / natural.width));
+    }
+    if(maxCanvasHeight > 0){
+      epubCropFitScale = Math.min(availW / QUOTE_SRC_WIDTH, availH / maxCanvasHeight);
+    }
+  }
   function fitEpubCropCanvas(){
     if(!epubCropSourceCanvas) return;
     const availW = epubCropScroll.clientWidth - 4;
     const availH = epubCropScroll.clientHeight - 4;
     if(availW <= 0 || availH <= 0) return;
-    const scale = Math.min(availW / epubCropSourceCanvas.width, availH / epubCropSourceCanvas.height);
+    // Fallback only — prepareEpubCropFitScale() normally already set this
+    // before the first sample page ever renders.
+    const scale = epubCropFitScale != null
+      ? epubCropFitScale
+      : Math.min(availW / epubCropSourceCanvas.width, availH / epubCropSourceCanvas.height);
     const dispW = Math.max(1, Math.round(epubCropSourceCanvas.width * scale));
     const dispH = Math.max(1, Math.round(epubCropSourceCanvas.height * scale));
     epubCropSourceCanvas.style.width = dispW + "px";
@@ -2396,7 +2428,7 @@
     epubCropImgWrap.style.height = dispH + "px";
   }
   window.addEventListener("resize", ()=>{
-    if(epubCropOverlay.classList.contains("open")) fitEpubCropCanvas();
+    if(epubCropOverlay.classList.contains("open")) prepareEpubCropFitScale().then(fitEpubCropCanvas);
   });
 
   function showEpubCropBox(frac){
@@ -2476,6 +2508,7 @@
     epubSampleIdx = 0;
     epubPreviewNav.hidden = epubSamplePages.length <= 1;
     epubCropOverlay.classList.add("open");
+    await prepareEpubCropFitScale();
     await loadEpubCropPage(epubSamplePages[0]);
   }
   function closeEpubCrop(){
@@ -2694,9 +2727,16 @@
     full.width = 0; full.height = 0;
     return crop;
   }
-  function buildEpubChapterXhtml(title, pagesParagraphs){
+  function buildEpubChapterXhtml(title, startPage, pagesParagraphs){
+    // A plain-text marker before each source page's paragraphs — no CSS
+    // class, so it shows up the same way in any EPUB reader (including
+    // third-party ones that ignore our stylesheet), not just this app's.
     const body = pagesParagraphs
-      .map(paras => paras.map(p => `<p>${escapeXml(p)}</p>`).join("\n"))
+      .map((paras, i) => {
+        if(!paras.length) return "";
+        const marker = `<p>— صفحة ${startPage + i} —</p>`;
+        return marker + "\n" + paras.map(p => `<p>${escapeXml(p)}</p>`).join("\n");
+      })
       .filter(Boolean)
       .join("\n");
     return `<?xml version="1.0" encoding="UTF-8"?>
@@ -2740,7 +2780,7 @@ p{ margin: 0 0 1em 0; text-align: justify; text-indent: 0; }`);
       const id = "chap" + (i + 1);
       const fname = `text/chapter${i + 1}.xhtml`;
       const title = `صفحات ${ch.startPage}–${ch.endPage}`;
-      files["OEBPS/" + fname] = enc(buildEpubChapterXhtml(title, ch.pages));
+      files["OEBPS/" + fname] = enc(buildEpubChapterXhtml(title, ch.startPage, ch.pages));
       manifestItems.push(`    <item id="${id}" href="${fname}" media-type="application/xhtml+xml"/>`);
       spineItems.push(`    <itemref idref="${id}"/>`);
       navItems.push(`<li><a href="${fname}">${escapeXml(title)}</a></li>`);

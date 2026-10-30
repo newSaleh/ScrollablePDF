@@ -7,7 +7,7 @@
 // CACHE_NAME is tied to the app's own version string — bump it together
 // with BUILD_VERSION/version.txt on every deploy so old clients pick up a
 // fresh cache instead of being stuck on stale precached files forever.
-const CACHE_NAME = "scrollablepdf-2026-10-29.9";
+const CACHE_NAME = "scrollablepdf-2026-10-30.1";
 const PRECACHE_URLS = [
   "./",
   "index.html",
